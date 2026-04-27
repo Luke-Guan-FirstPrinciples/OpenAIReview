@@ -1,5 +1,8 @@
-"""Unit tests for arXiv HTML parsing."""
+"""Unit tests for parser helpers and arXiv HTML parsing."""
 
+from pathlib import Path
+
+from reviewer import parsers
 from reviewer.parsers import parse_arxiv_html
 
 
@@ -77,3 +80,23 @@ def test_parse_arxiv_html_converts_tables_to_markdown(monkeypatch):
     assert "**Table 1 caption**" in parsed
     assert "| A | B |" in parsed
     assert "| 1 | 2 |" in parsed
+
+
+def test_parse_pdf_auto_falls_back_when_deepseek_raises_unexpected_error(monkeypatch):
+    monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+    monkeypatch.setattr(
+        parsers,
+        "_parse_pdf_deepseek",
+        lambda path, figures_dir=None: (_ for _ in ()).throw(
+            ValueError("unexpected DeepSeek settings error")
+        ),
+    )
+    monkeypatch.setattr(
+        parsers,
+        "_parse_pdf_marker",
+        lambda path: ("Marker Title", "marker output"),
+    )
+
+    title, text, engine = parsers._parse_pdf(Path("dummy.pdf"))
+
+    assert (title, text, engine) == ("Marker Title", "marker output", "marker")

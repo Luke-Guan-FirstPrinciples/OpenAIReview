@@ -87,7 +87,7 @@ openaireview review https://arxiv.org/html/2602.18458v1
 
 # Visualize results
 openaireview serve
-# Open http://localhost:8080
+# Open http://localhost:8081
 ```
 
 ## CLI Reference
@@ -123,7 +123,7 @@ Start a local visualization server to browse review results.
 | Option | Default | Description |
 |---|---|---|
 | `--results-dir` | `./review_results` | Directory containing result JSON files |
-| `--port` | `8080` | Server port |
+| `--port` | `8081` | Server port |
 
 ## Supported Input Formats
 

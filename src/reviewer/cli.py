@@ -557,8 +557,8 @@ def main() -> None:
         help="Directory containing result JSON files (default: ./review_results)",
     )
     serve_parser.add_argument(
-        "--port", type=int, default=8080,
-        help="Server port (default: 8080)",
+        "--port", type=int, default=8081,
+        help="Server port (default: 8081)",
     )
 
     # perturb subcommand

@@ -15,7 +15,7 @@ except ImportError:
 # Provider configs: (env_var, base_url or None for default, model_prefix_to_strip)
 PROVIDERS = {
     "openrouter": ("OPENROUTER_API_KEY", "https://openrouter.ai/api/v1", None),
-    "openai": ("OPENAI_API_KEY", None, None),
+    "openai": ("OPENAI_API_KEY", None, "openai/"),
     "anthropic": ("ANTHROPIC_API_KEY", "https://api.anthropic.com/v1/", "anthropic/"),
     "gemini": ("GEMINI_API_KEY", "https://generativelanguage.googleapis.com/v1beta/openai/", "google/"),
     "mistral": ("MISTRAL_API_KEY", "https://api.mistral.ai/v1", "mistralai/"),
@@ -87,12 +87,9 @@ def get_client(provider: str | None = None, model: str | None = None) -> tuple[O
                 file=sys.stderr,
             )
             sys.exit(1)
-        kwargs = {"api_key": api_key}
-        if base_url:
-            kwargs["base_url"] = base_url
         display = requested.replace("_", " ").title()
         _announce(f"Using {display} API")
-        return OpenAI(**kwargs), requested, prefix
+        return _make_client(requested)
 
     # Model-aware auto-detect: if model has a vendor prefix, try matching provider first
     if model:

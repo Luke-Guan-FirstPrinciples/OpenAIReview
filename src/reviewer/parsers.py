@@ -133,8 +133,12 @@ def _parse_pdf(
     try:
         title, text = _parse_pdf_deepseek(path, figures_dir=figures_dir)
         return title, text, "deepseek"
-    except (ImportError, ConnectionError, RuntimeError) as e:
-        print(f"  DeepSeek OCR not available ({e}), trying Marker...")
+    except Exception as e:
+        # DeepSeek is an optional engine. Some failures happen during import or
+        # settings initialization before its CLI can report a cleaner error.
+        print(
+            f"  DeepSeek OCR unavailable ({type(e).__name__}: {e}), trying Marker..."
+        )
     try:
         title, text = _parse_pdf_marker(path)
         return title, text, "marker"

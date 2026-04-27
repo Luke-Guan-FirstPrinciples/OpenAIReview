@@ -26,7 +26,7 @@
 openaireview review paper.pdf                              # default: progressive, auto-detect provider
 openaireview review paper.pdf --provider anthropic           # explicit provider
 openaireview review paper.pdf --method zero_shot
-openaireview serve --results-dir ./review_results --port 8080
+openaireview serve --results-dir ./review_results --port 8081
 ```
 
 ### Provider routing (`client.py`)

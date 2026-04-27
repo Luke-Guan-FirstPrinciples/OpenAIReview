@@ -211,6 +211,6 @@ Results saved to ./review_results/<slug>_skill.json
 To visualize:
   openaireview serve
 
-Then open http://localhost:8080 in your browser.
+Then open http://localhost:8081 in your browser.
 The workspace is at ./review_results/<slug>_review/ and can be deleted once you're done.
 ```

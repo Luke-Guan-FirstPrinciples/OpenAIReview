@@ -511,6 +511,126 @@ body {
   color: var(--green);
 }
 
+/* ── Feedback buttons ── */
+.feedback-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-light);
+}
+.fb-btn {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.fb-btn:hover { border-color: #d1d5db; color: var(--text); }
+.fb-btn.active.helpful { border-color: var(--green); background: var(--green-light); color: #065f46; }
+.fb-btn.active.unhelpful { border-color: var(--red); background: var(--red-light); color: #991b1b; }
+.fb-btn.active.rebuttal { border-color: var(--accent); background: var(--accent-light); color: var(--accent); }
+.fb-status {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.fb-status.error { color: var(--red); }
+
+.fb-form {
+  margin-top: 10px;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+.fb-form .fb-field { margin-bottom: 10px; }
+.fb-form .fb-field:last-of-type { margin-bottom: 0; }
+.fb-form label { display: block; font-weight: 600; color: var(--text); margin-bottom: 5px; font-size: 11px; }
+.fb-form .fb-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.fb-form .fb-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 400;
+  font-size: 11px;
+  margin-bottom: 0;
+  color: var(--text-secondary);
+}
+.fb-form .fb-options label:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  color: var(--accent);
+  font-weight: 500;
+}
+.fb-form .fb-options input { margin: 0; }
+.fb-form textarea {
+  width: 100%;
+  min-height: 60px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+  color: var(--text);
+  background: var(--surface);
+}
+.fb-form textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--shadow-focus); }
+.fb-form .fb-rating {
+  display: inline-flex;
+  gap: 3px;
+}
+.fb-form .fb-rating label {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  justify-content: center;
+}
+.fb-form .fb-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  align-items: center;
+}
+.fb-form .fb-actions button {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+.fb-form .fb-actions button.primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.fb-form .fb-actions button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.fb-form .fb-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* Comment panel filter bar */
 .comment-filter-bar {
   display: flex;
@@ -729,6 +849,19 @@ let typesetQueue = Promise.resolve();
 let resolvedIds = new Set();
 let showOnlyOpen = false;
 let mobilePanelActive = 'paper';
+let feedbackState = {};   // commentId -> { helpful:bool, unhelpful:bool, rebuttal:bool }
+let feedbackOpenForm = null;  // `${commentId}:${type}` while a form is expanded
+let feedbackConfigured = null;
+const OVERALL_FEEDBACK_ID = '__overall_feedback__';
+
+const UNHELPFUL_REASONS = [
+  'Not a real issue',
+  'Too vague',
+  'Wrong location',
+  'Already known',
+  'Hallucinated',
+  'Other',
+];
 
 function isMobile() { return window.innerWidth <= 768; }
 
@@ -760,6 +893,199 @@ function updateMobileNavBadge(count) {
 
 function resolvedStorageKey(commentId) {
   return `oar_resolved:${currentPaperSlug}:${currentMethod}:${commentId}`;
+}
+
+function feedbackStorageKey(commentId) {
+  return `oar_feedback:${currentPaperSlug}:${currentMethod}:${commentId}`;
+}
+
+function getClientId() {
+  let id = localStorage.getItem('oar_client_id');
+  if (!id) {
+    id = 'c_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem('oar_client_id', id);
+  }
+  return id;
+}
+
+function loadFeedbackState() {
+  feedbackState = {};
+  const paper = getCurrentPaper();
+  if (!paper || !currentMethod) return;
+  const method = paper.methods[currentMethod];
+  if (!method) return;
+  const targetIds = method.comments.map(c => c.id);
+  if (method.overall_feedback) targetIds.push(OVERALL_FEEDBACK_ID);
+  targetIds.forEach(id => {
+    const raw = localStorage.getItem(feedbackStorageKey(id));
+    if (raw) {
+      try { feedbackState[id] = JSON.parse(raw); } catch {}
+    }
+  });
+}
+
+function setFeedbackFlag(commentId, type) {
+  const cur = feedbackState[commentId] || {};
+  cur[type] = true;
+  feedbackState[commentId] = cur;
+  localStorage.setItem(feedbackStorageKey(commentId), JSON.stringify(cur));
+}
+
+function setFeedbackStatus(commentId, msg, isError = false) {
+  const el = document.querySelector(`[data-fb-status="${commentId}"]`);
+  if (!el) return;
+  el.textContent = msg || '';
+  el.classList.toggle('error', !!isError);
+  if (msg && !isError) {
+    setTimeout(() => {
+      const still = document.querySelector(`[data-fb-status="${commentId}"]`);
+      if (still && still.textContent === msg) still.textContent = '';
+    }, 2500);
+  }
+}
+
+async function handleFeedbackButton(commentId, type) {
+  const key = `${commentId}:${type}`;
+  feedbackOpenForm = feedbackOpenForm === key ? null : key;
+  render();
+}
+
+async function handleFeedbackSubmit(commentId, type, btn) {
+  const payload = { comment_id: commentId, feedback_type: type };
+  if (type === 'helpful') {
+    const textEl = document.querySelector(`[data-fb-text="${commentId}"]`);
+    if (textEl && textEl.value.trim()) payload.comment_text = textEl.value.trim();
+  } else if (type === 'unhelpful') {
+    const reasonEl = document.querySelector(`input[name="fb-reason-${commentId}"]:checked`);
+    const correctEl = document.querySelector(`input[name="fb-correct-${commentId}"]:checked`);
+    const textEl = document.querySelector(`[data-fb-text="${commentId}"]`);
+    if (reasonEl) payload.reason = reasonEl.value;
+    if (correctEl) payload.correctness = parseInt(correctEl.value, 10);
+    if (textEl && textEl.value.trim()) payload.comment_text = textEl.value.trim();
+  } else if (type === 'rebuttal') {
+    const textEl = document.querySelector(`[data-fb-text="${commentId}"]`);
+    const text = textEl ? textEl.value.trim() : '';
+    if (!text) {
+      setFeedbackStatus(commentId, 'Rebuttal text required', true);
+      return;
+    }
+    payload.comment_text = text;
+  }
+  btn.disabled = true;
+  try {
+    await submitFeedback(payload);
+    setFeedbackFlag(commentId, type);
+    feedbackOpenForm = null;
+    render();
+    setFeedbackStatus(commentId, 'Thanks!');
+  } catch (e) {
+    btn.disabled = false;
+    setFeedbackStatus(commentId, e.message, true);
+  }
+}
+
+function getOpenFeedbackForm(commentId) {
+  return feedbackOpenForm && feedbackOpenForm.startsWith(commentId + ':')
+    ? feedbackOpenForm.slice(commentId.length + 1)
+    : null;
+}
+
+function renderFeedbackWidget(commentId, options = {}) {
+  const fb = feedbackState[commentId] || {};
+  const openForm = getOpenFeedbackForm(commentId);
+  const helpfulPlaceholder = escapeHtml(
+    options.helpfulPlaceholder || 'What was helpful about this review?'
+  );
+  const unhelpfulPrompt = escapeHtml(
+    options.unhelpfulPrompt || 'Why is this unhelpful?'
+  );
+  const unhelpfulPlaceholder = escapeHtml(
+    options.unhelpfulPlaceholder || "What's wrong with this review?"
+  );
+  const rebuttalLabel = escapeHtml(
+    options.rebuttalLabel || 'Your rebuttal'
+  );
+  const rebuttalPlaceholder = escapeHtml(
+    options.rebuttalPlaceholder || 'Explain why you disagree with this review...'
+  );
+
+  const feedbackBar = `<div class="feedback-bar">
+    <button class="fb-btn helpful${fb.helpful ? ' active' : ''}" data-fb="helpful" data-id="${commentId}" title="Helpful">\u{1F44D} Helpful</button>
+    <button class="fb-btn unhelpful${fb.unhelpful ? ' active' : ''}" data-fb="unhelpful" data-id="${commentId}" title="Unhelpful">\u{1F44E} Unhelpful</button>
+    <button class="fb-btn rebuttal${fb.rebuttal ? ' active' : ''}" data-fb="rebuttal" data-id="${commentId}" title="Rebuttal">↩ Rebuttal</button>
+    <span class="fb-status" data-fb-status="${commentId}"></span>
+  </div>`;
+
+  let formHtml = '';
+  if (openForm === 'helpful') {
+    formHtml = `<div class="fb-form" data-fb-form="${commentId}">
+      <div class="fb-field">
+        <label>Additional comment (optional)</label>
+        <textarea data-fb-text="${commentId}" placeholder="${helpfulPlaceholder}"></textarea>
+      </div>
+      <div class="fb-actions">
+        <button class="primary" data-fb-submit="helpful" data-id="${commentId}">Submit helpful</button>
+        <button data-fb-cancel="${commentId}">Cancel</button>
+      </div>
+    </div>`;
+  } else if (openForm === 'unhelpful') {
+    const reasons = UNHELPFUL_REASONS.map((r, i) => `
+      <label><input type="radio" name="fb-reason-${commentId}" value="${escapeHtml(r)}"${i === 0 ? ' checked' : ''}>${escapeHtml(r)}</label>
+    `).join('');
+    const ratings = [1,2,3,4,5].map(n => `
+      <label><input type="radio" name="fb-correct-${commentId}" value="${n}">${n}</label>
+    `).join('');
+    formHtml = `<div class="fb-form" data-fb-form="${commentId}">
+      <div class="fb-field">
+        <label>${unhelpfulPrompt}</label>
+        <div class="fb-options">${reasons}</div>
+      </div>
+      <div class="fb-field">
+        <label>Correctness (1 = wrong, 5 = accurate)</label>
+        <div class="fb-rating fb-options">${ratings}</div>
+      </div>
+      <div class="fb-field">
+        <label>Additional comment (optional)</label>
+        <textarea data-fb-text="${commentId}" placeholder="${unhelpfulPlaceholder}"></textarea>
+      </div>
+      <div class="fb-actions">
+        <button class="primary" data-fb-submit="unhelpful" data-id="${commentId}">Submit</button>
+        <button data-fb-cancel="${commentId}">Cancel</button>
+      </div>
+    </div>`;
+  } else if (openForm === 'rebuttal') {
+    formHtml = `<div class="fb-form" data-fb-form="${commentId}">
+      <div class="fb-field">
+        <label>${rebuttalLabel}</label>
+        <textarea data-fb-text="${commentId}" placeholder="${rebuttalPlaceholder}"></textarea>
+      </div>
+      <div class="fb-actions">
+        <button class="primary" data-fb-submit="rebuttal" data-id="${commentId}">Submit rebuttal</button>
+        <button data-fb-cancel="${commentId}">Cancel</button>
+      </div>
+    </div>`;
+  }
+
+  return feedbackBar + formHtml;
+}
+
+async function submitFeedback(payload) {
+  const body = {
+    paper_slug: currentPaperSlug,
+    method: currentMethod,
+    client_id: getClientId(),
+    ...payload,
+  };
+  const resp = await fetch('/api/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${resp.status}`);
+  }
+  return resp.json();
 }
 
 function loadResolvedState() {
@@ -931,6 +1257,7 @@ function render() {
   if (!paper) return;
   const paperChanged = renderedPaperSlug !== currentPaperSlug;
   loadResolvedState();
+  loadFeedbackState();
   buildMethodTabs();
   renderMetrics();
   renderLegend();
@@ -1166,7 +1493,17 @@ function renderComments() {
   html += '<div class="comment-panel-content">';
 
   if (method.overall_feedback) {
-    html += `<div class="overall-feedback"><h3>Overall Feedback</h3>${renderMarkdownWithMath(method.overall_feedback)}</div>`;
+    html += `<div class="overall-feedback">
+      <h3>Overall Feedback</h3>
+      ${renderMarkdownWithMath(method.overall_feedback)}
+      ${renderFeedbackWidget(OVERALL_FEEDBACK_ID, {
+        helpfulPlaceholder: 'What was helpful about this overall feedback?',
+        unhelpfulPrompt: 'Why is this overall feedback unhelpful?',
+        unhelpfulPlaceholder: "What's wrong with this overall feedback?",
+        rebuttalLabel: 'Your rebuttal to the overall feedback',
+        rebuttalPlaceholder: 'Explain why you disagree with this overall feedback...'
+      })}
+    </div>`;
   }
 
   if (visibleComments.length === 0) {
@@ -1234,6 +1571,34 @@ function renderComments() {
     };
   });
 
+  panel.querySelectorAll('.fb-btn').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      handleFeedbackButton(btn.dataset.id, btn.dataset.fb);
+    };
+  });
+
+  panel.querySelectorAll('.fb-form').forEach(form => {
+    form.onclick = (e) => e.stopPropagation();
+  });
+
+  panel.querySelectorAll('[data-fb-cancel]').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      feedbackOpenForm = null;
+      render();
+    };
+  });
+
+  panel.querySelectorAll('[data-fb-submit]').forEach(btn => {
+    btn.onclick = async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const type = btn.dataset.fbSubmit;
+      await handleFeedbackSubmit(id, type, btn);
+    };
+  });
+
   panel.querySelectorAll('.comment-card').forEach(card => {
     card.classList.toggle('active', card.dataset.id === activeCommentId);
     card.onclick = () => {
@@ -1277,6 +1642,7 @@ function renderCommentCard(c) {
     ${quoteText ? `<div class="quote">${renderMarkdownWithMath(wrapBareLaTeX(quoteText))}</div>` : ''}
     ${explanationText ? `<div class="explanation">${renderMarkdownWithMath(explanationText)}</div>` : ''}
     ${paraLink}
+    ${renderFeedbackWidget(c.id)}
   </div>`;
 }
 

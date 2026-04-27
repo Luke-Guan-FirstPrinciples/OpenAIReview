@@ -7,9 +7,11 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
 from . import __version__
+from . import feedback_db
 
 
 VIZ_DIR = Path(__file__).parent / "viz"
+MAX_FEEDBACK_BYTES = 16 * 1024
 
 
 class ReviewHandler(SimpleHTTPRequestHandler):
@@ -27,8 +29,52 @@ class ReviewHandler(SimpleHTTPRequestHandler):
         elif self.path.startswith("/data/") and self.path.endswith(".json"):
             slug = self.path[len("/data/"):-len(".json")]
             self._serve_paper_data(slug)
+        elif self.path == "/api/feedback/status":
+            self._send_json({"configured": feedback_db.is_configured()})
         else:
             self.send_error(404, "Not Found")
+
+    def do_POST(self):
+        if self.path == "/api/feedback":
+            self._handle_feedback()
+        else:
+            self.send_error(404, "Not Found")
+
+    def _handle_feedback(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > MAX_FEEDBACK_BYTES:
+            self.send_error(400, "Invalid Content-Length")
+            return
+        raw = self.rfile.read(length)
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self.send_error(400, "Invalid JSON")
+            return
+        if not isinstance(payload, dict):
+            self.send_error(400, "Expected JSON object")
+            return
+
+        payload.setdefault("user_agent", self.headers.get("User-Agent"))
+
+        if not feedback_db.is_configured():
+            self._send_json(
+                {"error": "feedback storage not configured"},
+                status=503,
+            )
+            return
+
+        try:
+            row_id = feedback_db.insert_feedback(payload)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
+            return
+        except Exception as exc:
+            sys.stderr.write(f"[serve] feedback insert failed: {exc}\n")
+            self._send_json({"error": "internal error"}, status=500)
+            return
+
+        self._send_json({"id": row_id})
 
     def _serve_index(self):
         html_path = VIZ_DIR / "index.html"
@@ -75,9 +121,9 @@ class ReviewHandler(SimpleHTTPRequestHandler):
         except json.JSONDecodeError:
             self.send_error(500, f"Invalid JSON: {slug}.json")
 
-    def _send_json(self, data: dict):
+    def _send_json(self, data: dict, status: int = 200):
         content = json.dumps(data).encode("utf-8")
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(content)))
         self.end_headers()
@@ -88,7 +134,7 @@ class ReviewHandler(SimpleHTTPRequestHandler):
         sys.stderr.write(f"[serve] {args[0]}\n")
 
 
-def run_server(results_dir: str = "./review_results", port: int = 8080) -> None:
+def run_server(results_dir: str = "./review_results", port: int = 8081) -> None:
     """Start the visualization server."""
     results_path = Path(results_dir)
     if not results_path.is_dir():
@@ -99,6 +145,10 @@ def run_server(results_dir: str = "./review_results", port: int = 8080) -> None:
     server = HTTPServer(("0.0.0.0", port), handler)
     print(f"Serving review visualization at http://localhost:{port}")
     print(f"Results directory: {results_path.resolve()}")
+    if feedback_db.is_configured():
+        print("Feedback storage: configured (Postgres)")
+    else:
+        print("Feedback storage: disabled (set DB_HOST/DB_NAME/DB_USER/DB_PASSWORD and install 'openaireview[feedback]')")
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()
