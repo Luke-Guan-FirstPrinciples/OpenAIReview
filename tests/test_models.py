@@ -30,3 +30,38 @@ def test_review_result_to_dict():
     assert d["method"] == "progressive"
     assert d["num_comments"] == 1
     assert len(d["comments"]) == 1
+
+
+def test_grounded_comment_fields_to_dict():
+    c = Comment(
+        title="Unsupported baseline claim",
+        quote="we outperform all baselines",
+        explanation="The evidence is narrower than the claim.",
+        comment_type="logical",
+        paragraph_index=7,
+        claim="The paper overstates its baseline comparison.",
+        evidence="Table 2 only includes two baselines.",
+        rubric_dimension="results",
+        confidence="high",
+        severity="major",
+        verification_status="verified",
+    )
+    d = c.to_dict()
+    assert d["claim"] == "The paper overstates its baseline comparison."
+    assert d["evidence"] == "Table 2 only includes two baselines."
+    assert d["rubric_dimension"] == "results"
+    assert d["confidence"] == "high"
+    assert d["severity"] == "major"
+    assert d["verification_status"] == "verified"
+
+
+def test_review_result_grounding_fields_to_dict():
+    r = ReviewResult(
+        method="grounded_progressive",
+        paper_slug="paper1",
+        final_review="## Summary\nGrounded review.",
+        verifier_outputs={"refutation_checker": {"candidate_count": 3, "surviving_count": 1}},
+    )
+    d = r.to_dict()
+    assert d["final_review"].startswith("## Summary")
+    assert d["verifier_outputs"]["refutation_checker"]["candidate_count"] == 3

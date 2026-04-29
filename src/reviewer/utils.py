@@ -211,6 +211,12 @@ def parse_comments_from_list(items: list[dict]) -> list[Comment]:
             explanation=explanation,
             comment_type=comment_type,
             paragraph_index=paragraph_index,
+            claim=str(item.get("claim", "") or ""),
+            evidence=str(item.get("evidence", "") or ""),
+            rubric_dimension=str(item.get("rubric_dimension", "") or ""),
+            confidence=str(item.get("confidence", "") or "").lower(),
+            severity=str(item.get("severity", "") or "").lower(),
+            verification_status=str(item.get("verification_status", "") or "").lower(),
         ))
     return comments
 

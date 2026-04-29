@@ -350,6 +350,75 @@ body {
   color: var(--accent);
   margin-bottom: 8px;
 }
+.final-review {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  line-height: 1.65;
+  box-shadow: var(--shadow-sm);
+}
+.final-review h3,
+.verifier-section h3 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+.final-review h2 {
+  font-size: 15px;
+  margin: 14px 0 6px;
+}
+.verifier-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  line-height: 1.55;
+  box-shadow: var(--shadow-sm);
+}
+.verifier-details {
+  border-top: 1px solid var(--border-light);
+  padding-top: 8px;
+  margin-top: 8px;
+}
+.verifier-details summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.verifier-grid {
+  display: grid;
+  gap: 8px;
+}
+.verifier-card {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  background: var(--bg);
+}
+.verifier-card-title {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.verifier-card-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+.verifier-card pre {
+  white-space: pre-wrap;
+  overflow-x: auto;
+  font-size: 11px;
+}
 
 /* Comment cards */
 .comment-card {
@@ -397,6 +466,11 @@ body {
 .badge.major { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
 .badge.moderate { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
 .badge.minor { background: #f0f9ff; color: #075985; border: 1px solid #bae6fd; }
+.badge.verified { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+.badge.partially_verified { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+.badge.needs_clarification { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
+.badge.confidence { background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; }
+.badge.dimension { background: var(--accent-light); color: var(--accent); border: 1px solid #f2cbd3; }
 
 .comment-card .quote {
   color: var(--text-secondary);
@@ -842,7 +916,7 @@ let INDEX = null;
 let paperCache = {};
 let currentPaperSlug = null;
 let currentMethod = null;
-const METHOD_ORDER = ['ground_truth','zero_shot','local','progressive','progressive_full'];
+const METHOD_ORDER = ['ground_truth','zero_shot','local','progressive','progressive_full','grounded_progressive'];
 let activeCommentId = null;
 let renderedPaperSlug = null;
 let typesetQueue = Promise.resolve();
@@ -1203,7 +1277,8 @@ function getMethodKeys(paper) {
   if (!paper) return [];
   const keys = Object.keys(paper.methods);
   keys.sort((a, b) => {
-    let ia = METHOD_ORDER.indexOf(a), ib = METHOD_ORDER.indexOf(b);
+    const ba = a.split('__')[0], bb = b.split('__')[0];
+    let ia = METHOD_ORDER.indexOf(ba), ib = METHOD_ORDER.indexOf(bb);
     if (ia === -1) ia = 999;
     if (ib === -1) ib = 999;
     return ia - ib || a.localeCompare(b);
@@ -1338,6 +1413,21 @@ function renderMetrics() {
     parts.push(`<span class="metric"><span class="badge major" style="font-size:10px">${counts.major}</span> <span class="badge moderate" style="font-size:10px">${counts.moderate}</span> <span class="badge minor" style="font-size:10px">${counts.minor}</span></span>`);
   } else {
     parts.push(`<span class="metric"><strong>${comments.length}</strong> comments${openLabel}</span>`);
+  }
+  if (comments.some(c => c.verification_status)) {
+    const verified = comments.filter(c => c.verification_status === 'verified').length;
+    const partial = comments.filter(c => c.verification_status === 'partially_verified').length;
+    const unclear = comments.filter(c => c.verification_status === 'needs_clarification').length;
+    parts.push(`<span class="metric-divider"></span>`);
+    parts.push(`<span class="metric">Verified <strong>${verified}</strong></span>`);
+    parts.push(`<span class="metric">Partial <strong>${partial}</strong></span>`);
+    if (unclear) parts.push(`<span class="metric">Needs clarification <strong>${unclear}</strong></span>`);
+  }
+  if (method.verifier_outputs && method.verifier_outputs.refutation_checker) {
+    const rc = method.verifier_outputs.refutation_checker;
+    if (rc.candidate_count !== undefined) {
+      parts.push(`<span class="metric">Candidates <strong>${rc.surviving_count || comments.length}/${rc.candidate_count}</strong></span>`);
+    }
   }
 
   if (!m) {
@@ -1493,6 +1583,8 @@ function renderComments() {
   html += '<div class="comment-panel-content">';
 
   if (method.overall_feedback) {
+    const duplicatesFinal = method.final_review && method.final_review.trim() === method.overall_feedback.trim();
+    if (!duplicatesFinal) {
     html += `<div class="overall-feedback">
       <h3>Overall Feedback</h3>
       ${renderMarkdownWithMath(method.overall_feedback)}
@@ -1504,6 +1596,18 @@ function renderComments() {
         rebuttalPlaceholder: 'Explain why you disagree with this overall feedback...'
       })}
     </div>`;
+    }
+  }
+
+  if (method.final_review) {
+    html += `<div class="final-review">
+      <h3>Final Review</h3>
+      ${renderMarkdownWithMath(method.final_review)}
+    </div>`;
+  }
+
+  if (method.verifier_outputs) {
+    html += renderVerifierOutputs(method.verifier_outputs);
   }
 
   if (visibleComments.length === 0) {
@@ -1630,6 +1734,9 @@ function renderCommentCard(c) {
 
   let badges = '';
   if (c.severity) badges += `<span class="badge ${c.severity}">${c.severity}</span>`;
+  if (c.verification_status) badges += `<span class="badge ${c.verification_status}">${c.verification_status.replaceAll('_', ' ')}</span>`;
+  if (c.confidence) badges += `<span class="badge confidence">${c.confidence}</span>`;
+  if (c.rubric_dimension) badges += `<span class="badge dimension">${escapeHtml(c.rubric_dimension.replaceAll('_', ' '))}</span>`;
 
   const resolveBtn = `<button class="resolve-btn${isResolved ? ' is-resolved' : ''}" data-resolve-id="${c.id}" title="${isResolved ? 'Mark as open' : 'Mark as resolved'}">✓</button>`;
 
@@ -1640,10 +1747,59 @@ function renderCommentCard(c) {
       ${resolveBtn}
     </div>
     ${quoteText ? `<div class="quote">${renderMarkdownWithMath(wrapBareLaTeX(quoteText))}</div>` : ''}
+    ${c.claim ? `<div class="explanation"><strong>Claim:</strong> ${renderMarkdownWithMath(c.claim)}</div>` : ''}
+    ${c.evidence ? `<div class="explanation"><strong>Evidence:</strong> ${renderMarkdownWithMath(c.evidence)}</div>` : ''}
     ${explanationText ? `<div class="explanation">${renderMarkdownWithMath(explanationText)}</div>` : ''}
     ${paraLink}
     ${renderFeedbackWidget(c.id)}
   </div>`;
+}
+
+function renderVerifierOutputs(outputs) {
+  const cards = [];
+  if (outputs.method_insight_miner) {
+    cards.push(renderVerifierCard('Method Insight Miner', outputs.method_insight_miner));
+  }
+  if (outputs.results_analyzer) {
+    cards.push(renderVerifierCard('Results Analyzer', outputs.results_analyzer));
+  }
+  if (outputs.related_work_searcher) {
+    cards.push(renderVerifierCard('Related Work Searcher', outputs.related_work_searcher));
+  }
+  if (outputs.refutation_checker) {
+    cards.push(renderVerifierCard('Refutation Checker', outputs.refutation_checker));
+  }
+  if (cards.length === 0) return '';
+  return `<div class="verifier-section">
+    <h3>Intermediate Verifier Outputs</h3>
+    <details class="verifier-details">
+      <summary>Show grounding steps</summary>
+      <div class="verifier-grid">${cards.join('')}</div>
+    </details>
+  </div>`;
+}
+
+function renderVerifierCard(title, data) {
+  const summary = summarizeVerifierData(data);
+  return `<div class="verifier-card">
+    <div class="verifier-card-title">${escapeHtml(title)}</div>
+    ${summary ? `<div class="verifier-card-meta">${escapeHtml(summary)}</div>` : ''}
+    <pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>
+  </div>`;
+}
+
+function summarizeVerifierData(data) {
+  if (!data || typeof data !== 'object') return '';
+  if (data.candidate_count !== undefined) {
+    return `${data.surviving_count || 0} surviving issues from ${data.candidate_count} candidates`;
+  }
+  if (Array.isArray(data.related_papers)) {
+    return `${data.related_papers.length} related papers`;
+  }
+  const counts = Object.entries(data)
+    .filter(([, value]) => Array.isArray(value))
+    .map(([key, value]) => `${value.length} ${key.replaceAll('_', ' ')}`);
+  return counts.slice(0, 3).join(', ');
 }
 
 function wrapBareLaTeX(text) {

@@ -11,6 +11,12 @@ class Comment:
     explanation: str    # reviewer's explanation
     comment_type: str   # "technical" or "logical"
     paragraph_index: int | None = None  # 0-based index in split paragraphs
+    claim: str = ""
+    evidence: str = ""
+    rubric_dimension: str = ""
+    confidence: str = ""
+    severity: str = ""
+    verification_status: str = ""
 
     def to_dict(self) -> dict:
         d = {
@@ -21,6 +27,17 @@ class Comment:
         }
         if self.paragraph_index is not None:
             d["paragraph_index"] = self.paragraph_index
+        for key in (
+            "claim",
+            "evidence",
+            "rubric_dimension",
+            "confidence",
+            "severity",
+            "verification_status",
+        ):
+            value = getattr(self, key)
+            if value:
+                d[key] = value
         return d
 
 
@@ -31,6 +48,8 @@ class ReviewResult:
     paper_slug: str
     comments: list[Comment] = field(default_factory=list)
     overall_feedback: str = ""
+    final_review: str = ""
+    verifier_outputs: dict = field(default_factory=dict)
     total_prompt_tokens: int = 0
     total_completion_tokens: int = 0
     model: str = ""
@@ -46,6 +65,8 @@ class ReviewResult:
             "method": self.method,
             "paper_slug": self.paper_slug,
             "overall_feedback": self.overall_feedback,
+            "final_review": self.final_review,
+            "verifier_outputs": self.verifier_outputs,
             "comments": [c.to_dict() for c in self.comments],
             "num_comments": self.num_comments,
             "total_prompt_tokens": self.total_prompt_tokens,

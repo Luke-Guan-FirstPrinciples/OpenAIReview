@@ -41,6 +41,7 @@ def _method_key(method: str, model: str) -> str:
 def cmd_review(args: argparse.Namespace) -> None:
     """Run a review on a document."""
     from .method_progressive import review_progressive
+    from .method_grounded import review_grounded_progressive
     from .method_local import review_local
     from .method_zero_shot import review_zero_shot
     from .parsers import is_url, parse_document
@@ -115,6 +116,13 @@ def cmd_review(args: argparse.Namespace) -> None:
             ocr=was_ocr,
         )
         result = full if method == "progressive_full" else consolidated
+    elif method == "grounded_progressive":
+        result = review_grounded_progressive(
+            slug, content,
+            model=args.model,
+            reasoning_effort=reasoning,
+            ocr=was_ocr,
+        )
     else:
         print(f"Error: unknown method: {method}", file=sys.stderr)
         sys.exit(1)
@@ -188,6 +196,24 @@ def _build_paper_json(
             "explanation": c.explanation,
             "comment_type": c.comment_type,
             "paragraph_index": c.paragraph_index,
+            **({
+                "claim": c.claim,
+            } if getattr(c, "claim", "") else {}),
+            **({
+                "evidence": c.evidence,
+            } if getattr(c, "evidence", "") else {}),
+            **({
+                "rubric_dimension": c.rubric_dimension,
+            } if getattr(c, "rubric_dimension", "") else {}),
+            **({
+                "confidence": c.confidence,
+            } if getattr(c, "confidence", "") else {}),
+            **({
+                "severity": c.severity,
+            } if getattr(c, "severity", "") else {}),
+            **({
+                "verification_status": c.verification_status,
+            } if getattr(c, "verification_status", "") else {}),
         })
 
     model_short = _model_short_name(result.model) if result.model else ""
@@ -208,6 +234,10 @@ def _build_paper_json(
         "prompt_tokens": result.total_prompt_tokens,
         "completion_tokens": result.total_completion_tokens,
     }
+    if getattr(result, "final_review", ""):
+        method_data["final_review"] = result.final_review
+    if getattr(result, "verifier_outputs", None):
+        method_data["verifier_outputs"] = result.verifier_outputs
 
     return {
         "slug": slug,
@@ -487,7 +517,7 @@ def main() -> None:
     )
     review_parser.add_argument(
         "--method",
-        choices=["zero_shot", "local", "progressive", "progressive_full"],
+        choices=["zero_shot", "local", "progressive", "progressive_full", "grounded_progressive"],
         default="progressive",
         help="Review method (default: progressive)",
     )

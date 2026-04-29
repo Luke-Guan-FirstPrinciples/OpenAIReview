@@ -32,6 +32,7 @@ uv venv && uv pip install -e .
 - Mistral OCR and DeepSeek OCR as optional PDF engines (`pip install "openaireview[mistral]"`)
 - `openaireview extract` subcommand for two-stage OCR + review workflow
 - Multi-provider routing: OpenRouter, OpenAI, Anthropic, Gemini, Mistral (`--provider`)
+- Grounded progressive review mode with final review synthesis, verifier outputs, and issue-level evidence metadata
 - Table and figure extraction from arXiv HTML (tables as markdown)
 - pymupdf4llm + GNN layout as default PDF fallback (replaces raw PyMuPDF)
 - Mobile-responsive visualization UI
@@ -98,7 +99,7 @@ Review an academic paper for technical and logical issues. Accepts a local file 
 
 | Option | Default | Description |
 |---|---|---|
-| `--method` | `progressive` | Review method: `zero_shot`, `local`, `progressive`, `progressive_full` |
+| `--method` | `progressive` | Review method: `zero_shot`, `local`, `progressive`, `progressive_full`, `grounded_progressive` |
 | `--model` | `anthropic/claude-opus-4-6` | Model to use |
 | `--provider` | (auto) | LLM provider: `openrouter`, `openai`, `anthropic`, `gemini`, `mistral` |
 | `--ocr` | (auto) | PDF OCR engine: `mistral`, `deepseek`, `marker`, `pymupdf` |
@@ -166,6 +167,7 @@ For models not listed above, a default rate of $5.00/$25.00 per 1M tokens is use
 - **local** — deep-checks each chunk with surrounding window context (no filtering)
 - **progressive** — sequential processing with running summary, then consolidation
 - **progressive_full** — same as progressive but returns all comments before consolidation
+- **grounded_progressive** — runs progressive candidate generation, then ReviewGrounder-style method/results/related-work/refutation verifiers. Surviving issues include `claim`, `evidence`, `rubric_dimension`, `confidence`, `severity`, and `verification_status`; the viz UI also shows a final review and intermediate verifier outputs.
 
 ## Claude Code Skill
 
