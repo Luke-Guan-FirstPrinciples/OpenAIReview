@@ -34,3 +34,7 @@ perturbation_results/
 # macOS
 .DS_Store
 .claude/
+
+# Nested independent repos
+/eacl2026-assessing-paper-novelty/
+/ReviewGrounder/
