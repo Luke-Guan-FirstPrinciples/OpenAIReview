@@ -6,6 +6,48 @@ Our goal is provide thorough and detailed reviews to help researchers conduct th
 
 ![Example](assets/example.png)
 
+## How it works
+
+```mermaid
+flowchart LR
+    subgraph Input
+        A1[PDF / DOCX / TEX / MD]
+        A2[arXiv URL]
+    end
+
+    A1 --> P[parsers.py<br/>parse_document]
+    A2 --> P
+    P --> |text + title| M{review method}
+
+    M --> Z[zero_shot]
+    M --> L[local]
+    M --> PR[progressive]
+    M --> G[grounded_progressive]
+
+    Z --> R[ReviewResult<br/>comments, tokens, cost]
+    L --> R
+    PR --> R
+    G --> R
+
+    R --> J[review_results/&lt;slug&gt;.json]
+    J --> S[serve.py + viz/index.html<br/>http://localhost:8081]
+
+    subgraph Providers["client.py — LLM provider routing"]
+        OR[OpenRouter]
+        OAI[OpenAI]
+        AN[Anthropic]
+        GE[Gemini]
+        MI[Mistral]
+    end
+
+    Z -.-> Providers
+    L -.-> Providers
+    PR -.-> Providers
+    G -.-> Providers
+```
+
+The pipeline has four stages: **parse** the source into plain text and paragraph indices, **review** with the chosen method (each method calls an LLM via the provider-agnostic [`chat()`](src/reviewer/client.py) wrapper), **persist** the result as viz-compatible JSON, and **serve** the visualization locally. Methods differ in how they chunk the paper and how aggressively they verify candidate issues — see [Review Methods](#review-methods) below and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for module-level details.
+
 ## Installation
 
 ```bash
@@ -33,6 +75,7 @@ uv venv && uv pip install -e .
 - `openaireview extract` subcommand for two-stage OCR + review workflow
 - Multi-provider routing: OpenRouter, OpenAI, Anthropic, Gemini, Mistral (`--provider`)
 - Grounded progressive review mode with final review synthesis, verifier outputs, and issue-level evidence metadata
+- Optional novelty-delta verifier for grounded reviews (`--novelty-delta`)
 - Table and figure extraction from arXiv HTML (tables as markdown)
 - pymupdf4llm + GNN layout as default PDF fallback (replaces raw PyMuPDF)
 - Mobile-responsive visualization UI
@@ -105,6 +148,7 @@ Review an academic paper for technical and logical issues. Accepts a local file 
 | `--ocr` | (auto) | PDF OCR engine: `mistral`, `deepseek`, `marker`, `pymupdf` |
 | `--max-pages` | (all) | Only process first N pages of a PDF (saves OCR cost) |
 | `--max-tokens` | (all) | Truncate input text to first N tokens before review |
+| `--novelty-delta` | off | With `--method grounded_progressive`, run an extra novelty/positioning delta verifier |
 | `--output-dir` | `./review_results` | Directory for output JSON files |
 | `--name` | (from filename) | Paper slug name |
 
@@ -163,11 +207,52 @@ For models not listed above, a default rate of $5.00/$25.00 per 1M tokens is use
 
 ## Review Methods
 
-- **zero_shot** — single prompt asking the model to find all issues
-- **local** — deep-checks each chunk with surrounding window context (no filtering)
-- **progressive** — sequential processing with running summary, then consolidation
-- **progressive_full** — same as progressive but returns all comments before consolidation
-- **grounded_progressive** — runs progressive candidate generation, then ReviewGrounder-style method/results/related-work/refutation verifiers. Surviving issues include `claim`, `evidence`, `rubric_dimension`, `confidence`, `severity`, and `verification_status`; the viz UI also shows a final review and intermediate verifier outputs.
+| Method | What it does | Cost | Best for |
+|---|---|---|---|
+| `zero_shot` | Single prompt; chunks if > 100K tokens | $ | Quick sanity reviews |
+| `local` | Deep-checks each chunk with a sliding window of context | $$ | High recall on long papers |
+| `progressive` | Sequential pass with a running summary, then a consolidation step that dedups | $$ | Default — balances recall and precision |
+| `progressive_full` | Same as `progressive` but returns pre-consolidation comments | $$ | Debugging or when you want raw output |
+| `grounded_progressive` | `progressive` + paper-grounded verifiers (method, results, related work, refutation) and a final synthesized review | $$$ | Papers where evidence-grounding and reviewer-style output matter |
+
+Comments from `grounded_progressive` carry extra metadata: `claim`, `evidence`, `rubric_dimension`, `confidence`, `severity`, and `verification_status`. The viz UI surfaces the final review and intermediate verifier outputs as collapsible cards.
+
+### `grounded_progressive` pipeline
+
+```mermaid
+flowchart TD
+    P[Paper text] --> PG[progressive review<br/>candidate issues]
+    P --> MI[method_insight_miner<br/>contributions, assumptions,<br/>novelty claims, risks]
+    P --> RA[results_analyzer<br/>datasets, metrics, baselines,<br/>key results, eval risks]
+    P --> RW[related_work_searcher<br/>generates queries → Semantic Scholar<br/>→ synthesizes positioning notes]
+
+    MI --> ND{--novelty-delta?}
+    RA --> ND
+    RW --> ND
+    ND -- yes --> NDV[novelty_delta_verifier<br/>contribution deltas, overstated<br/>novelty risks, missing comparisons]
+    ND -- no --> RC
+
+    PG --> RC[refutation_checker<br/>verify, sharpen, or discard<br/>candidates against verifier context]
+    MI --> RC
+    RA --> RC
+    RW --> RC
+    NDV --> RC
+
+    RC --> FR[final_review<br/>Summary / Strengths / Weaknesses /<br/>Questions / Bottom Line]
+    RC --> CL[surviving comments<br/>with severity + verification_status]
+
+    FR --> OUT[ReviewResult]
+    CL --> OUT
+    MI --> OUT
+    RA --> OUT
+    RW --> OUT
+    NDV --> OUT
+
+    style ND fill:#fff7d6,stroke:#d4a017
+    style NDV fill:#fff7d6,stroke:#d4a017
+```
+
+For contribution-heavy papers, add `--novelty-delta`. This runs an extra novelty/positioning verifier that separates author novelty claims, closest related work, contribution deltas, overstated novelty risks, and missing-comparison questions. It does not require GROBID, Nougat, MinerU, or related-paper PDF downloads; it reuses OpenAIReview's parsed paper text and related-work summaries. See [docs/FEATURE_PROVENANCE.md](docs/FEATURE_PROVENANCE.md) for notes on which ideas were adapted from ReviewGrounder and the EACL novelty repo.
 
 ## Claude Code Skill
 
@@ -208,6 +293,13 @@ Integration tests that call the API require `OPENROUTER_API_KEY` and are skipped
 ## Benchmarks
 
 Benchmark data and experiment scripts are in `benchmarks/`. See `benchmarks/REPORT.md` for results.
+
+## Documentation
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — module-by-module walkthrough with diagrams
+- [docs/FEATURE_PROVENANCE.md](docs/FEATURE_PROVENANCE.md) — what was adopted from ReviewGrounder and the EACL novelty repo, what was changed, what was deliberately left out
+- [CONTRIBUTING.md](CONTRIBUTING.md) — contribution guidelines
+- [benchmarks/REPORT.md](benchmarks/REPORT.md) — experiment results on the Refine.ink ground-truth set
 
 ## Related Resources
 

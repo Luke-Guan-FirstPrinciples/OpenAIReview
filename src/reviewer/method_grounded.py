@@ -95,6 +95,68 @@ Retrieved metadata:
 {retrieved_json}
 """
 
+NOVELTY_DELTA_PROMPT = """\
+You are a novelty-delta verifier for an academic paper review system.
+
+Your job is to assess the paper's novelty and positioning against retrieved related-work
+context. Be careful and evidence-grounded:
+- Treat the paper text as the source of truth for what the authors actually claim.
+- Treat retrieved related work as external context, not as papers necessarily cited by the
+  submission.
+- Do not say the submission cites or compares to a retrieved paper unless the paper text
+  itself supports that.
+- Distinguish author-claimed novelty from independently observed differences.
+- Prefer reviewer-useful observations: closest prior work, likely missing comparisons,
+  overstated novelty risks, and concrete questions.
+
+Return ONLY JSON:
+{{
+  "submission_novelty_claims": [
+    {{"claim": "...", "paper_evidence": "section/equation/snippet"}}
+  ],
+  "closest_related_work": [
+    {{"title": "...", "relation": "why it appears close", "evidence": "retrieved metadata or related-work note"}}
+  ],
+  "contribution_deltas": [
+    {{
+      "submission_claim": "...",
+      "closest_prior_work": "...",
+      "observed_delta": "specific similarity/difference",
+      "delta_strength": "strong|moderate|weak|unclear",
+      "evidence": "paper evidence plus retrieved-work evidence"
+    }}
+  ],
+  "overstated_novelty_risks": [
+    {{"risk": "...", "evidence": "...", "suggested_review_framing": "..."}}
+  ],
+  "missing_comparisons_or_citations": [
+    {{"work_or_area": "...", "why_relevant": "...", "reviewer_question": "..."}}
+  ],
+  "field_context": [
+    {{"observation": "...", "evidence": "..."}}
+  ],
+  "limitations": [
+    "What this verifier could not establish from the available paper text/retrieved metadata."
+  ],
+  "confidence": "high|medium|low"
+}}
+
+Keep lists short: at most 5 items each. If retrieved related work is thin or noisy, say so
+in limitations and set confidence accordingly.
+
+Paper text:
+{paper_text}
+
+Method/contribution insights extracted from the paper:
+{method_insights_json}
+
+Results/evaluation analysis extracted from the paper:
+{results_analysis_json}
+
+Retrieved related-work context:
+{related_work_json}
+"""
+
 REFUTATION_CHECKER_PROMPT = """\
 You are a refutation checker for candidate academic-review issues.
 
@@ -117,6 +179,8 @@ For each surviving issue, return all required fields:
 - verification_status: "verified", "partially_verified", or "needs_clarification"
 
 Use the method insights, results analysis, and related-work notes when they are relevant.
+Use the novelty-delta analysis when it is relevant to contribution, novelty, positioning,
+or missing-comparison issues.
 Do not use related work to assert that the target paper cited or compared against a work
 unless the target text says so. Phrase external-context issues as positioning questions or
 missing-comparison suggestions.
@@ -136,6 +200,9 @@ Results analysis:
 
 Related-work notes:
 {related_work_json}
+
+Novelty-delta analysis:
+{novelty_delta_json}
 
 Paper:
 {paper_text}
@@ -167,6 +234,9 @@ Results analysis:
 
 Related-work notes:
 {related_work_json}
+
+Novelty-delta analysis:
+{novelty_delta_json}
 """
 
 
@@ -294,6 +364,32 @@ def _related_work_searcher(
     return {"search_queries": queries, "related_papers": retrieved[:15], "errors": errors}
 
 
+def _novelty_delta_verifier(
+    paper_text: str,
+    method_insights: Any,
+    results_analysis: Any,
+    related_work: Any,
+    result: ReviewResult,
+    model: str,
+    reasoning_effort: str | None,
+) -> dict:
+    """Run an optional novelty-specific verifier over paper-grounded and retrieval context."""
+    prompt = NOVELTY_DELTA_PROMPT.format(
+        paper_text=paper_text,
+        method_insights_json=json.dumps(method_insights, ensure_ascii=False, indent=2),
+        results_analysis_json=json.dumps(results_analysis, ensure_ascii=False, indent=2),
+        related_work_json=json.dumps(related_work, ensure_ascii=False, indent=2),
+    )
+    novelty_delta = _json_chat(
+        prompt,
+        result,
+        model,
+        reasoning_effort,
+        max_tokens=8192,
+    )
+    return novelty_delta if isinstance(novelty_delta, dict) else {}
+
+
 def _normalize_grounded_comments(items: Any) -> list:
     if not isinstance(items, list):
         return []
@@ -323,6 +419,7 @@ def review_grounded_progressive(
     model: str = "anthropic/claude-opus-4-6",
     reasoning_effort: str | None = None,
     ocr: bool = False,
+    enable_novelty_delta: bool = False,
 ) -> ReviewResult:
     """Run progressive review, then ground and verify candidate issues."""
     grounded = ReviewResult(
@@ -371,6 +468,19 @@ def review_grounded_progressive(
         reasoning_effort,
     )
 
+    novelty_delta: dict = {}
+    if enable_novelty_delta:
+        print("  Grounding: novelty delta verifier...")
+        novelty_delta = _novelty_delta_verifier(
+            paper_text,
+            method_insights,
+            results_analysis,
+            related_work,
+            grounded,
+            model,
+            reasoning_effort,
+        )
+
     print(f"  Grounding: refutation checker over {len(candidates)} candidate issues...")
     verified_items = _json_chat(
         REFUTATION_CHECKER_PROMPT.format(
@@ -379,6 +489,7 @@ def review_grounded_progressive(
             method_insights_json=json.dumps(method_insights, ensure_ascii=False, indent=2),
             results_analysis_json=json.dumps(results_analysis, ensure_ascii=False, indent=2),
             related_work_json=json.dumps(related_work, ensure_ascii=False, indent=2),
+            novelty_delta_json=json.dumps(novelty_delta, ensure_ascii=False, indent=2),
             paper_text=paper_text,
         ),
         grounded,
@@ -394,6 +505,7 @@ def review_grounded_progressive(
         method_insights_json=json.dumps(method_insights, ensure_ascii=False, indent=2),
         results_analysis_json=json.dumps(results_analysis, ensure_ascii=False, indent=2),
         related_work_json=json.dumps(related_work, ensure_ascii=False, indent=2),
+        novelty_delta_json=json.dumps(novelty_delta, ensure_ascii=False, indent=2),
     )
     final_review, usage = chat(
         messages=[{"role": "user", "content": final_prompt}],
@@ -416,4 +528,6 @@ def review_grounded_progressive(
             "surviving_count": len(grounded.comments),
         },
     }
+    if enable_novelty_delta:
+        grounded.verifier_outputs["novelty_delta"] = novelty_delta
     return grounded

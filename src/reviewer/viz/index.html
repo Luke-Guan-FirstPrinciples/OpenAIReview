@@ -1766,6 +1766,9 @@ function renderVerifierOutputs(outputs) {
   if (outputs.related_work_searcher) {
     cards.push(renderVerifierCard('Related Work Searcher', outputs.related_work_searcher));
   }
+  if (outputs.novelty_delta) {
+    cards.push(renderVerifierCard('Novelty Delta', outputs.novelty_delta));
+  }
   if (outputs.refutation_checker) {
     cards.push(renderVerifierCard('Refutation Checker', outputs.refutation_checker));
   }

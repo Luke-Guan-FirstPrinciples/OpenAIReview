@@ -122,6 +122,7 @@ def cmd_review(args: argparse.Namespace) -> None:
             model=args.model,
             reasoning_effort=reasoning,
             ocr=was_ocr,
+            enable_novelty_delta=getattr(args, "novelty_delta", False),
         )
     else:
         print(f"Error: unknown method: {method}", file=sys.stderr)
@@ -558,6 +559,11 @@ def main() -> None:
     review_parser.add_argument(
         "--max-tokens", type=int, default=None,
         help="Truncate input text to first N tokens before review",
+    )
+    review_parser.add_argument(
+        "--novelty-delta",
+        action="store_true",
+        help="With --method grounded_progressive, run an extra novelty/positioning delta verifier",
     )
 
     # extract subcommand
