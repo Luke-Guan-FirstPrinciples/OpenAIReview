@@ -97,6 +97,11 @@ def cmd_review(args: argparse.Namespace) -> None:
     method = args.method
     print(f"Running method: {method}...")
 
+    if args.skip_nonsubstantial == "true":
+        skip = True
+    else:
+        skip = False
+
     reasoning = getattr(args, "reasoning_effort", None)
     full = None
 
@@ -115,6 +120,7 @@ def cmd_review(args: argparse.Namespace) -> None:
             slug, content,
             model=args.model,
             reasoning_effort=reasoning,
+            skip_nonsubstantial=skip,
             ocr=was_ocr,
         )
         result = full if method == "progressive_full" else consolidated
@@ -303,11 +309,14 @@ def cmd_perturb(args: argparse.Namespace) -> None:
     if str(_BENCHMARKS_DIR) not in sys.path:
         sys.path.insert(0, str(_BENCHMARKS_DIR))
     from perturbation import (
+        extract_abstract,
         extract_candidates,
         generate_perturbations,
         inject_perturbations,
         validate_perturbations,
     )
+    from perturbation.extract import attach_verifier_related_passages
+    from perturbation.verify import verify_perturbations_batched
 
     source = args.file
     if is_url(source):
@@ -328,7 +337,8 @@ def cmd_perturb(args: argparse.Namespace) -> None:
 
     # Stage 0: Extract candidates
     print("\nStage 0: Extracting candidate spans...")
-    candidates = extract_candidates(content, args.error_type)
+    candidates = extract_candidates(args.category, args.error_type, content)
+    attach_verifier_related_passages(candidates, content, max_passages=args.related_passages_max)
     print(f"  {len(candidates)} candidates found")
 
     from collections import Counter
@@ -340,20 +350,49 @@ def cmd_perturb(args: argparse.Namespace) -> None:
 
     # Stage 1: Generate perturbations
     print(f"\nGenerating perturbations...")
+    abstract = extract_abstract(content) or content[:2000]
     perturbations = generate_perturbations(
+        args.category,
+        args.error_type,
+        args.n_total,
+        abstract,
         candidates,
         model=args.model,
-        n_per_error=args.n_per_error,
         reasoning_effort=reasoning,
-        error_type=args.error_type
     )
 
-    # Validate
+    # Validate (4 structural tests)
     print(f"\nValidating {len(perturbations)} perturbations...")
     valid, rejected = validate_perturbations(perturbations, content)
     print(f"  Valid: {len(valid)}, Rejected: {len(rejected)}")
     for p, reason in rejected:
         print(f"    REJECTED {p.perturbation_id}: {reason[:80]}")
+
+    # Verify (substantive-error oracle, test #5)
+    verifier_stats = None
+    verifier_verdicts: dict = {}
+    if not args.skip_verifier:
+        print(f"\nVerifying {len(valid)} perturbations (substantive-error oracle)...")
+        accepted, rejected_v, verifier_stats, verdict_map = verify_perturbations_batched(
+            valid,
+            candidates,
+            paper_title=title,
+            model=args.verifier_model,
+            reasoning_effort=args.verifier_reasoning,
+        )
+        print(f"  Accepted: {len(accepted)}, Dropped: {len(rejected_v)}")
+        for p, v in rejected_v:
+            print(f"    DROPPED {p.perturbation_id} ({v.verdict}): {v.reason[:80]}")
+        verifier_verdicts = {
+            pid: {
+                "verdict": v.verdict,
+                "quote": v.quote,
+                "reason": v.reason,
+                **v.items,  # i1..i4 when available
+            }
+            for pid, v in verdict_map.items()
+        }
+        valid = accepted
 
     # Inject
     corrupted, applied = inject_perturbations(content, valid)
@@ -372,6 +411,9 @@ def cmd_perturb(args: argparse.Namespace) -> None:
         "n_valid": len(valid),
         "n_injected": len(applied),
         "model": args.model,
+        "verifier_model": args.verifier_model if not args.skip_verifier else None,
+        "verifier_stats": verifier_stats,
+        "verifier_verdicts": verifier_verdicts,
         "perturbations": [
             {
                 "perturbation_id": p.perturbation_id,
@@ -380,6 +422,7 @@ def cmd_perturb(args: argparse.Namespace) -> None:
                 "original": p.original,
                 "perturbed": p.perturbed,
                 "why_wrong": p.why_wrong,
+                "contradicts_quote": p.contradicts_quote,
             }
             for p in applied
         ],
@@ -431,6 +474,7 @@ def cmd_score(args: argparse.Namespace) -> None:
             span_id=p["span_id"],
             error=Error(p["error"]),
             original=p["original"],
+            offset=p.get("offset", 0),
             perturbed=p["perturbed"],
             why_wrong=p["why_wrong"],
         ))
@@ -603,6 +647,12 @@ def main() -> None:
         help="Reasoning effort level (default: adaptive/auto)",
     )
     review_parser.add_argument(
+        "--skip-nonsubstantial",
+        choices=["true", "false"],
+        default="false",
+        help="Skip non-substantial passages (default: false)",
+    )
+    review_parser.add_argument(
         "--ocr",
         choices=["mistral", "deepseek", "marker", "pymupdf"],
         default=None,
@@ -710,10 +760,6 @@ def main() -> None:
         help="Model for perturbation generation (default: anthropic/claude-opus-4-6)",
     )
     perturb_parser.add_argument(
-        "--n-per-error", type=int, default=2,
-        help="Target perturbations per error category (default: 2)",
-    )
-    perturb_parser.add_argument(
         "--output-dir", default="./perturbation_results",
         help="Directory for output files (default: ./perturbation_results)",
     )
@@ -724,8 +770,50 @@ def main() -> None:
         help="Reasoning effort level",
     )
     perturb_parser.add_argument(
-        "--error_type", default="all",
-        help="Error type (default: all)",
+        "--category",
+        choices=["theoretical", "empirical"],
+        default="theoretical",
+        help="Paper category (default: theoretical)",
+    )
+    perturb_parser.add_argument(
+        "--error-type",
+        choices=["all", "surface", "claim_theoretical", "logic", "statement_empirical", "experimental"],
+        default="all",
+        help="Error type to extract (default: all)",
+    )
+    perturb_parser.add_argument(
+        "--n-total",
+        type=int,
+        default=20,
+        help="Target number of perturbations per paper (default: 20)",
+    )
+    perturb_parser.add_argument(
+        "--related-passages-max",
+        type=int,
+        default=5,
+        help="Max passages cached on each candidate for the verifier to sample from (default: 5)",
+    )
+    perturb_parser.add_argument(
+        "--verifier-model",
+        default="anthropic/claude-sonnet-4-6",
+        help="Model for the substantive-error verifier (test #5)",
+    )
+    perturb_parser.add_argument(
+        "--verifier-reasoning",
+        choices=["none", "low", "medium", "high"],
+        default="none",
+        help="Reasoning effort for the verifier (default: none)",
+    )
+    perturb_parser.add_argument(
+        "--verifier-max-workers",
+        type=int,
+        default=8,
+        help="Parallel workers for the verifier (default: 8)",
+    )
+    perturb_parser.add_argument(
+        "--skip-verifier",
+        action="store_true",
+        help="Skip the substantive-error verifier (test #5).",
     )
 
     # score subcommand

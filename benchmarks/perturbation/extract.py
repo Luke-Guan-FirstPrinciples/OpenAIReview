@@ -6,45 +6,101 @@ Each span is tagged with its type and compatible error categories.
 
 import re
 from .models import CandidateSpan, Error, SpanType
+from .related_passages import find_related_passages
 
-def extract_candidates(text: str, error_type: str) -> list[CandidateSpan]:
+
+def attach_verifier_related_passages(
+    candidates: list[CandidateSpan],
+    text: str,
+    max_passages: int = 5,
+) -> list[CandidateSpan]:
+    """Populate `verifier_related_passages` on each candidate.
+
+    The verifier samples from this list when the generator did not produce a
+    `contradicts_quote`.
+    """
+    for span in candidates:
+        span.verifier_related_passages = find_related_passages(
+            span, text, span.offset, max_passages=max_passages,
+        )
+    return candidates
+
+def extract_abstract(text: str) -> str | None:
+    """Extract abstract text from LaTeX.
+
+    Tries, in order: \\begin{abstract}, then a section named
+    abstract/introduction/background/motivation/overview.
+    """
+    m = re.search(r'\\begin\{abstract\}(.+?)\\end\{abstract\}', text, re.DOTALL)
+    if m:
+        return m.group(1).strip()
+
+    section_re = re.compile(
+        r'\\(?:section|subsection)\*?\{(abstract|introduction|background|motivation|overview)[^}]*\}',
+        re.IGNORECASE,
+    )
+    m = section_re.search(text)
+    if m:
+        start = m.end()
+        next_sec = re.search(r'\\(?:section|subsection)\*?\{', text[start:])
+        end = start + next_sec.start() if next_sec else start + 2000
+        return text[start:end].strip()
+
+    return None
+
+_MAX_PER_SPAN_TYPE = 20
+
+def extract_candidates(category, error_type, text: str) -> list[CandidateSpan]:
     """Extract all perturbation candidates from a paper's text.
 
     Returns spans sorted by position in the document.
     """
-    if error_type == "surface":
-        _EXTRACTORS = _EXTRACTORS_SURFACE
-    elif error_type == "formal":
-        _EXTRACTORS = _EXTRACTORS_FORMAL
-    else:
-        _EXTRACTORS = _EXTRACTORS_ALL
-
     candidates: list[CandidateSpan] = []
     span_counter = 0
+    type_counts: dict[SpanType, int] = {}
 
-    # Extract spans of each type
-    for extractor in _EXTRACTORS: # CAN return overlapping spans (diff categories)
+    if category == "theoretical":
+        if error_type == "all":
+            extractors = _EXTRACTORS_THEORETICAL
+        elif error_type == "surface":
+            extractors = _EXTRACTORS_SURFACE
+        elif error_type == "claim_theoretical":
+            extractors = _EXTRACTORS_CLAIM_THEORETICAL
+        elif error_type == "logic":
+            extractors = _EXTRACTORS_LOGIC
+    elif category == "empirical":
+        if error_type == "all":
+            extractors = _EXTRACTORS_EMPIRICAL
+        elif error_type == "surface":
+            extractors = _EXTRACTORS_SURFACE
+        elif error_type == "statement_empirical":
+            extractors = _EXTRACTORS_STATEMENT_EMPIRICAL
+        elif error_type == "experimental":
+            extractors = _EXTRACTORS_EXPERIMENTAL
+
+    for extractor in extractors:
         for span_type, match_text, match_offset in extractor(text):
+            if type_counts.get(span_type, 0) >= _MAX_PER_SPAN_TYPE:
+                continue
+
             context = _get_context(text, match_offset, match_len=len(match_text), window=200)
             errors = _compatible_errors(span_type)
 
-            if extractor in _EXTRACTORS_SURFACE:
-                error_type = "surface"
-            elif extractor in _EXTRACTORS_FORMAL:
-                error_type = "formal"
+            error = extractor_dict[extractor]
 
             candidates.append(CandidateSpan(
                 span_id=f"S{span_counter:04d}",
                 span_type=span_type,
                 text=match_text,
+                offset=match_offset,
                 context=context,
-                error_type=error_type,
+                error_type=error,
                 compatible_errors=errors,
             ))
             span_counter += 1
+            type_counts[span_type] = type_counts.get(span_type, 0) + 1
 
     return candidates
-
 
 # ---------------------------------------------------------------------------
 # Error Type 1: Surface 
@@ -103,7 +159,7 @@ _EXTRACTORS_SURFACE = [
 
 
 # ---------------------------------------------------------------------------
-# Error Type 2: Formal 
+# Error Type 2: Claim 
 # ---------------------------------------------------------------------------
 
 def _extract_definitions(text: str):
@@ -125,6 +181,15 @@ def _extract_theorems(text: str):
             yield SpanType.THEOREM, m.group(0), m.start()
 
 
+_EXTRACTORS_CLAIM_THEORETICAL = [
+    _extract_definitions,
+    _extract_theorems,
+]
+
+# ---------------------------------------------------------------------------
+# Error Type 3: Logic 
+# ---------------------------------------------------------------------------
+
 def _extract_proofs(text: str):
     """Find proof environments."""
     PRF_ENVS = ['proof', 'proof*']
@@ -133,20 +198,94 @@ def _extract_proofs(text: str):
         for m in re.finditer(pattern, text, re.DOTALL):
             yield SpanType.PROOF, m.group(0), m.start()
 
-
-_EXTRACTORS_FORMAL = [
-    _extract_definitions,
-    _extract_theorems,
+_EXTRACTORS_LOGIC = [
     _extract_proofs,
 ]
 
+# ---------------------------------------------------------------------------
+# Error Type 4: Empirical 
+# ---------------------------------------------------------------------------
+_SKIP_SECTIONS = re.compile(
+    r'bibliograph|reference|appendix|acknowledge|acknowledgement',
+    re.IGNORECASE,
+)
+
+def _extract_paragraphs(text: str):
+    """Extract paragraphs from non-experimental sections (intro, related work, conclusion, etc.)"""
+    EXPERIMENTAL_KEYWORDS = re.compile(
+        r'result|evaluation|empirical|numerical|case stud|analysis|method|approach|statistical',
+        re.IGNORECASE
+    )
+    section_re = re.compile(r'\\section\*?\{([^}]+)\}')
+    sections = list(section_re.finditer(text))
+
+    for i, match in enumerate(sections):
+        title = match.group(1)
+        if EXPERIMENTAL_KEYWORDS.search(title) or _SKIP_SECTIONS.search(title):
+            continue                                                                                                  
+        start = match.start()
+        end = sections[i + 1].start() if i + 1 < len(sections) else len(text)
+        section_text = text[start:end]
+                                                                                                                    
+        for para in re.split(r'\n\n+', section_text):
+            para = para.strip()                                                                                       
+            if len(para) < 50:
+                continue
+            para_offset = text.find(para, start)                                                                      
+            if para_offset == -1:
+                continue                                                                                              
+            yield SpanType.PARAGRAPH, para, para_offset
+
+_EXTRACTORS_STATEMENT_EMPIRICAL = [_extract_paragraphs]
+
+def _extract_experimental(text: str):                                                                                 
+    """Find experimental/results/methods sections, yielding individual paragraphs."""
+    EXPERIMENTAL_KEYWORDS = re.compile(                                                                               
+        r'result|evaluation|empirical|numerical|case stud|analysis|method|approach|statistical',
+        re.IGNORECASE                                                                                                 
+    )           
+    section_re = re.compile(r'\\section\*?\{([^}]+)\}')
+    sections = list(section_re.finditer(text))                                                                        
+
+    for i, match in enumerate(sections):
+        title = match.group(1)
+        if not EXPERIMENTAL_KEYWORDS.search(title) or _SKIP_SECTIONS.search(title):
+            continue
+        start = match.start()
+        end = sections[i + 1].start() if i + 1 < len(sections) else len(text)                                         
+        section_text = text[start:end]
+                                                                                                                    
+        for para in re.split(r'\n\n+', section_text):                                                                 
+            para = para.strip()
+            if len(para) < 50:                                                                                        
+                continue
+            para_offset = text.find(para, start)
+            if para_offset == -1:
+                continue
+            yield SpanType.EXPERIMENTAL, para, para_offset
+
+_EXTRACTORS_EXPERIMENTAL = [_extract_experimental]
 
 # ---------------------------------------------------------------------------
-# All Errors:
+# All Errors
 # ---------------------------------------------------------------------------
 
-_EXTRACTORS_ALL = _EXTRACTORS_SURFACE + _EXTRACTORS_FORMAL
+_EXTRACTORS_THEORETICAL = _EXTRACTORS_SURFACE + _EXTRACTORS_CLAIM_THEORETICAL + _EXTRACTORS_LOGIC
+_EXTRACTORS_EMPIRICAL = _EXTRACTORS_SURFACE + _EXTRACTORS_STATEMENT_EMPIRICAL + _EXTRACTORS_EXPERIMENTAL
 
+extractor_dict = {
+    _extract_display_equations: "surface",
+    _extract_inline_equations: "surface",
+    _extract_named_equations: "surface",
+
+    _extract_definitions: "claim_theoretical",
+    _extract_theorems: "claim_theoretical",
+
+    _extract_proofs: "logic",
+
+    _extract_paragraphs: "statement_empirical",
+    _extract_experimental: "experimental"
+}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -164,36 +303,44 @@ def _compatible_errors(span_type: SpanType) -> list[Error]:
     mapping = {
         SpanType.EQUATION_DISPLAY: [
             Error.OPERATOR_OR_SIGN,
-            Error.SYMBOL_BINDING,
             Error.INDEX_OR_SUBSCRIPT,
             Error.NUMERIC_PARAMETER,
+            Error.COMPUTATION,
         ],
         SpanType.EQUATION_INLINE: [
             Error.OPERATOR_OR_SIGN,
-            Error.SYMBOL_BINDING,
+            Error.COMPUTATION,
             Error.INDEX_OR_SUBSCRIPT,
             Error.NUMERIC_PARAMETER,
         ],
         SpanType.EQUATION_NAMED: [
             Error.OPERATOR_OR_SIGN,
-            Error.SYMBOL_BINDING,
+            Error.COMPUTATION,
             Error.INDEX_OR_SUBSCRIPT,
             Error.NUMERIC_PARAMETER,
         ], 
 
         SpanType.DEFINITION: [
-            Error.DEF_WRONG
+            Error.INCORRECT_CLAIM_THEORETICAL,
         ],
         SpanType.THEOREM: [
-            Error.THM_WRONG_CONDITION, 
-            Error.THM_WRONG_CONCLUSION,
-            Error.THM_WRONG_SCOPE
+            Error.INCORRECT_CLAIM_THEORETICAL,
         ],
+
         SpanType.PROOF: [
-            Error.PROOF_WRONG_DIRECTION,
-            Error.PROOF_MISSING_CASE,
-            Error.PROOF_WRONG_ASSUMPTION,
-            Error.PROOF_MISMATCH
+            Error.MISSING_CASE,
+            Error.INDUCTION,
+            Error.CIRCULAR_REASONING,
+            Error.INVALID_IMPLICATION,
+        ],
+
+        SpanType.PARAGRAPH: [
+            Error.INCORRECT_STATEMENT_EMPIRICAL
+        ],
+        SpanType.EXPERIMENTAL: [
+            Error.MISINTERP,
+            Error.CAUSAL_REVERSED,
+            Error.P_HACKING,
         ]
     }
     return mapping.get(span_type, [])

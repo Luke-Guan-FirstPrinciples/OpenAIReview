@@ -9,11 +9,17 @@
 max_papers: 2
 length: short          # short (2k-7k words) | medium (7k-17k) | long (>17k)
 
-error_type: surface    # surface | formal | all
 score_method: llm      # llm | fuzzy | semantic
 
 perturb_model: google/gemini-3-flash-preview
 score_model: google/gemini-3-flash-preview
+
+# Substantive-error verifier (validation test #5). Runs after the 4 structural
+# tests. Strong-model oracle that drops typo-shaped / not-an-error perturbations.
+verifier_model: anthropic/claude-sonnet-4-6
+verifier_reasoning: none            # none | low | medium | high
+verifier_max_workers: 8
+skip_verifier: false
 
 review_models:
   - google/gemini-3-flash-preview

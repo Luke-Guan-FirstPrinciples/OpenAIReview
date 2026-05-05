@@ -1,10 +1,9 @@
 """Validate perturbations before injection.
 
 Checks:
-1. Original text actually exists in the paper (exact match)
-2. Perturbed text differs from original
-3. No two perturbations target overlapping text spans
-4. Replacement won't create garbled text at boundaries
+1. Perturbed text differs from original
+2. No two perturbations target overlapping text spans
+3. Replacement won't create garbled text at boundaries
 """
 
 from .models import Perturbation
@@ -36,22 +35,21 @@ def validate_perturbations(
     """
     valid: list[Perturbation] = []
     rejected: list[tuple[Perturbation, str]] = []
-    # Track occupied character ranges to prevent overlaps
     occupied: list[tuple[int, int]] = []
 
-    for p in perturbations:
-        # Check 1: original exists in paper
-        idx = paper_text.find(p.original)
-        if idx == -1:
-            rejected.append((p, f"original text not found in paper: {p.original[:80]}..."))
-            continue
+    # Process larger spans first so theorems/proofs take priority over
+    # surface-level equations contained within them
+    ordered = sorted(perturbations, key=lambda p: len(p.original), reverse=True)
 
-        # Check 2: perturbed differs from original
+    for p in ordered:
+        idx = p.offset
+
+        # Check 1: perturbed differs from original
         if p.original == p.perturbed:
             rejected.append((p, "perturbed text is identical to original"))
             continue
 
-        # Check 3: no overlapping spans
+        # Check 2: no overlapping spans
         span_end = idx + len(p.original)
         overlap = False
         for occ_start, occ_end in occupied:
@@ -62,10 +60,12 @@ def validate_perturbations(
             rejected.append((p, f"overlaps with an already-selected perturbation at [{idx}:{span_end}]"))
             continue
 
-        # Check 4: replacement won't create garbled text
+        # Check 3: replacement won't create garbled text
         if _replacement_creates_garbage(paper_text, idx, p.original, p.perturbed):
             rejected.append((p, "replacement would create garbled text at boundaries"))
             continue
+
+        # Check 4: quick LLM check to make sure perturbation is good quality?
 
         occupied.append((idx, span_end))
         valid.append(p)
