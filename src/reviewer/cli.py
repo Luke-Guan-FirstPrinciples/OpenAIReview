@@ -15,6 +15,7 @@ except ImportError:
 
 
 DEFAULT_MODEL = os.environ.get("MODEL", "anthropic/claude-opus-4-6")
+DEFAULT_CITATION_MODEL = os.environ.get("CITATION_MODEL", "gpt-5.2")
 _BENCHMARKS_DIR = Path(__file__).parent.parent.parent / "benchmarks"
 OCR_DISCLAIMER = "This document was extracted by OCR engine and could contain mistakes."
 
@@ -97,6 +98,7 @@ def cmd_review(args: argparse.Namespace) -> None:
     print(f"Running method: {method}...")
 
     reasoning = getattr(args, "reasoning_effort", None)
+    full = None
 
     if method == "zero_shot":
         result = review_zero_shot(slug, content, model=args.model,
@@ -124,6 +126,26 @@ def cmd_review(args: argparse.Namespace) -> None:
             ocr=was_ocr,
             enable_novelty_delta=getattr(args, "novelty_delta", False),
         )
+    elif method == "citation_verify":
+        from .citation_verify import CiteVerifyUnavailable, review_citations
+        try:
+            result = review_citations(
+                slug,
+                content,
+                model=args.citation_model,
+                provider=args.citation_provider,
+                reasoning_effort=reasoning,
+                citeverify_path=args.citeverify_path,
+                infer_citations=args.citation_infer,
+                skip_alignment=args.citation_skip_alignment,
+                steps_json_path=args.citation_steps_json,
+                try_web_search=args.citation_try_web_search,
+                use_full_text=not args.citation_no_full_text,
+                verbose=True,
+            )
+        except (CiteVerifyUnavailable, ValueError) as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
     else:
         print(f"Error: unknown method: {method}", file=sys.stderr)
         sys.exit(1)
@@ -140,14 +162,41 @@ def cmd_review(args: argparse.Namespace) -> None:
     # method key so we can compare raw vs consolidated counts later.
     method_blocks: list[tuple[str, str, object]] = []
     key = _method_key(method, args.model)
+    if method == "citation_verify":
+        key = _method_key(method, args.citation_model)
     method_blocks.append((method, key, result))
 
-    if method == "progressive":
+    if method == "progressive" and full is not None:
         full.method = "progressive_original"
         orig_key = _method_key("progressive_original", args.model)
         print(f"  Pre-consolidation: {full.num_comments} comments "
               f"(saved as {orig_key})")
         method_blocks.append(("progressive_original", orig_key, full))
+
+    if method != "citation_verify" and getattr(args, "citation_check", False):
+        from .citation_verify import CiteVerifyUnavailable, review_citations
+        citation_key = _method_key("citation_verify", args.citation_model)
+        print("Running citation verification...")
+        try:
+            citation_result = review_citations(
+                slug,
+                content,
+                model=args.citation_model,
+                provider=args.citation_provider,
+                reasoning_effort=reasoning,
+                citeverify_path=args.citeverify_path,
+                infer_citations=args.citation_infer,
+                skip_alignment=args.citation_skip_alignment,
+                steps_json_path=args.citation_steps_json,
+                try_web_search=args.citation_try_web_search,
+                use_full_text=not args.citation_no_full_text,
+                verbose=True,
+            )
+        except (CiteVerifyUnavailable, ValueError) as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(f"  Citation verification: {citation_result.num_comments} comments")
+        method_blocks.append(("citation_verify", citation_key, citation_result))
 
     # Build first block as the base paper_data, then attach extras.
     base_method, base_key, base_result = method_blocks[0]
@@ -518,7 +567,14 @@ def main() -> None:
     )
     review_parser.add_argument(
         "--method",
-        choices=["zero_shot", "local", "progressive", "progressive_full", "grounded_progressive"],
+        choices=[
+            "zero_shot",
+            "local",
+            "progressive",
+            "progressive_full",
+            "grounded_progressive",
+            "citation_verify",
+        ],
         default="progressive",
         help="Review method (default: progressive)",
     )
@@ -564,6 +620,51 @@ def main() -> None:
         "--novelty-delta",
         action="store_true",
         help="With --method grounded_progressive, run an extra novelty/positioning delta verifier",
+    )
+    review_parser.add_argument(
+        "--citation-check",
+        action="store_true",
+        help="Also run CiteVerify citation hallucination and claim-citation checks",
+    )
+    review_parser.add_argument(
+        "--citation-model", default=DEFAULT_CITATION_MODEL,
+        help="Model for CiteVerify stages (default: gpt-5.2 or CITATION_MODEL)",
+    )
+    review_parser.add_argument(
+        "--citation-provider",
+        choices=["openai", "anthropic", "google", "gemini"],
+        default="openai",
+        help="Provider for CiteVerify stages (default: openai)",
+    )
+    review_parser.add_argument(
+        "--citeverify-path",
+        default=None,
+        help="Development override: path to a local CiteVerify checkout",
+    )
+    review_parser.add_argument(
+        "--citation-infer",
+        action="store_true",
+        help="Use CiteVerify's LLM inference to assign citations to uncited claims",
+    )
+    review_parser.add_argument(
+        "--citation-skip-alignment",
+        action="store_true",
+        help="Only detect citation hallucinations; skip claim-evidence alignment",
+    )
+    review_parser.add_argument(
+        "--citation-steps-json",
+        default=None,
+        help="Optional CiteVerify steps.json path for local citation matching",
+    )
+    review_parser.add_argument(
+        "--citation-try-web-search",
+        action="store_true",
+        help="Allow CiteVerify's web-search fallback for citation matching",
+    )
+    review_parser.add_argument(
+        "--citation-no-full-text",
+        action="store_true",
+        help="Use abstracts only for claim-citation alignment",
     )
 
     # extract subcommand

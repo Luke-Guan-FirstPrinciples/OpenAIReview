@@ -60,6 +60,11 @@ For fast PDF processing (requires `MISTRAL_API_KEY`):
 uv pip install "openaireview[mistral]"
 ```
 
+For citation hallucination and claim-citation verification via CiteVerify:
+```bash
+uv pip install -e ".[citation]"
+```
+
 For development:
 ```bash
 git clone https://github.com/ChicagoHAI/OpenAIReview.git
@@ -75,6 +80,7 @@ uv venv && uv pip install -e .
 - `openaireview extract` subcommand for two-stage OCR + review workflow
 - Multi-provider routing: OpenRouter, OpenAI, Anthropic, Gemini, Mistral (`--provider`)
 - Grounded progressive review mode with final review synthesis, verifier outputs, and issue-level evidence metadata
+- Optional CiteVerify-backed citation hallucination detection and claim-citation verification (`--method citation_verify` or `--citation-check`)
 - Optional novelty-delta verifier for grounded reviews (`--novelty-delta`)
 - Table and figure extraction from arXiv HTML (tables as markdown)
 - pymupdf4llm + GNN layout as default PDF fallback (replaces raw PyMuPDF)
@@ -142,15 +148,36 @@ Review an academic paper for technical and logical issues. Accepts a local file 
 
 | Option | Default | Description |
 |---|---|---|
-| `--method` | `progressive` | Review method: `zero_shot`, `local`, `progressive`, `progressive_full`, `grounded_progressive` |
+| `--method` | `progressive` | Review method: `zero_shot`, `local`, `progressive`, `progressive_full`, `grounded_progressive`, `citation_verify` |
 | `--model` | `anthropic/claude-opus-4-6` | Model to use |
 | `--provider` | (auto) | LLM provider: `openrouter`, `openai`, `anthropic`, `gemini`, `mistral` |
 | `--ocr` | (auto) | PDF OCR engine: `mistral`, `deepseek`, `marker`, `pymupdf` |
 | `--max-pages` | (all) | Only process first N pages of a PDF (saves OCR cost) |
 | `--max-tokens` | (all) | Truncate input text to first N tokens before review |
 | `--novelty-delta` | off | With `--method grounded_progressive`, run an extra novelty/positioning delta verifier |
+| `--citation-check` | off | Also run CiteVerify and save citation findings as a separate method block |
+| `--citation-model` | `gpt-5.2` | Model for CiteVerify stages |
+| `--citation-provider` | `openai` | Provider for CiteVerify stages: `openai`, `anthropic`, `google`, or `gemini` |
+| `--citeverify-path` | | Development override for a local CiteVerify checkout |
+| `--citation-infer` | off | Use CiteVerify's LLM citation inference for uncited claims |
+| `--citation-skip-alignment` | off | Only detect citation hallucinations; skip claim-evidence alignment |
+| `--citation-steps-json` | | Optional CiteVerify steps.json path for local citation matching |
+| `--citation-try-web-search` | off | Allow CiteVerify's web-search fallback for citation matching |
+| `--citation-no-full-text` | off | Use abstracts only for claim-citation alignment |
 | `--output-dir` | `./review_results` | Directory for output JSON files |
 | `--name` | (from filename) | Paper slug name |
+
+To run citation verification only:
+
+```bash
+openaireview review report.md --method citation_verify
+```
+
+To add citation checks to a normal review:
+
+```bash
+openaireview review paper.md --method grounded_progressive --citation-check --citation-no-full-text
+```
 
 ### `openaireview extract <file>`
 
@@ -214,6 +241,7 @@ For models not listed above, a default rate of $5.00/$25.00 per 1M tokens is use
 | `progressive` | Sequential pass with a running summary, then a consolidation step that dedups | $$ | Default — balances recall and precision |
 | `progressive_full` | Same as `progressive` but returns pre-consolidation comments | $$ | Debugging or when you want raw output |
 | `grounded_progressive` | `progressive` + paper-grounded verifiers (method, results, related work, refutation) and a final synthesized review | $$$ | Papers where evidence-grounding and reviewer-style output matter |
+| `citation_verify` | CiteVerify-backed citation hallucination detection plus claim-evidence alignment for cited claims | $$-$$$ | Reports or parsed papers with numeric inline citations and a References section |
 
 Comments from `grounded_progressive` carry extra metadata: `claim`, `evidence`, `rubric_dimension`, `confidence`, `severity`, and `verification_status`. The viz UI surfaces the final review and intermediate verifier outputs as collapsible cards.
 
