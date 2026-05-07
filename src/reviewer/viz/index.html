@@ -22,19 +22,21 @@ MathJax = {
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #fafafa;
+  --bg: #f8fafc;
   --surface: #ffffff;
   --border: #e5e7eb;
   --border-light: #f0f0f0;
   --text: #1a1a2e;
   --text-secondary: #6b7280;
   --text-muted: #9ca3af;
-  --accent: #800020;
-  --accent-light: #fdf0f2;
-  --accent-hover: #5c0017;
+  --accent: #2563eb;
+  --accent-light: #eff6ff;
+  --accent-hover: #1d4ed8;
+  --accent-border: #bfdbfe;
+  --ink: #0f172a;
   --green: #10b981;
   --green-light: #ecfdf5;
   --green-border: #a7f3d0;
@@ -45,21 +47,47 @@ MathJax = {
   --red-light: #fef2f2;
   --red-border: #fecaca;
   --blue-light: #eff6ff;
-  --radius: 12px;
-  --radius-sm: 8px;
+  --radius: 8px;
+  --radius-sm: 6px;
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
   --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
   --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.05);
-  --shadow-focus: 0 0 0 3px rgba(128,0,32,0.15);
+  --shadow-focus: 0 0 0 3px rgba(37,99,235,0.16);
   --header-h: 64px;
   --tabs-h: 52px;
   --metrics-h: 44px;
+  --font-serif: 'Instrument Serif', Georgia, serif;
+  --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0b1120;
+  --surface: #111827;
+  --border: #263244;
+  --border-light: #1f2937;
+  --text: #e5edf7;
+  --text-secondary: #a9b7c8;
+  --text-muted: #718096;
+  --accent: #7dd3fc;
+  --accent-light: rgba(14,165,233,0.14);
+  --accent-hover: #38bdf8;
+  --accent-border: rgba(125,211,252,0.32);
+  --ink: #f8fafc;
+  --green-light: rgba(16,185,129,0.14);
+  --orange-light: rgba(245,158,11,0.14);
+  --red-light: rgba(239,68,68,0.14);
+  --blue-light: rgba(37,99,235,0.16);
+  --shadow-sm: none;
+  --shadow: none;
+  --shadow-md: 0 14px 30px rgba(0,0,0,0.25);
+  --shadow-focus: 0 0 0 3px rgba(125,211,252,0.18);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
@@ -80,10 +108,11 @@ body {
   z-index: 100;
 }
 .header .logo {
-  font-size: 15px;
-  font-weight: 700;
+  font-family: var(--font-serif);
+  font-size: 24px;
+  font-weight: 400;
   color: var(--accent);
-  letter-spacing: -0.3px;
+  letter-spacing: 0;
   white-space: nowrap;
 }
 .version-badge {
@@ -105,7 +134,12 @@ body {
   flex: 1;
   max-width: 480px;
 }
-.paper-select-wrapper select {
+.method-select-wrapper {
+  position: relative;
+  flex: 0 0 260px;
+}
+.paper-select-wrapper select,
+.method-select-wrapper select {
   width: 100%;
   padding: 8px 32px 8px 12px;
   font-size: 14px;
@@ -119,9 +153,12 @@ body {
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
-.paper-select-wrapper select:hover { border-color: #d1d5db; }
-.paper-select-wrapper select:focus { outline: none; border-color: var(--accent); box-shadow: var(--shadow-focus); }
-.paper-select-wrapper::after {
+.paper-select-wrapper select:hover,
+.method-select-wrapper select:hover { border-color: #d1d5db; }
+.paper-select-wrapper select:focus,
+.method-select-wrapper select:focus { outline: none; border-color: var(--accent); box-shadow: var(--shadow-focus); }
+.paper-select-wrapper::after,
+.method-select-wrapper::after {
   content: '';
   position: absolute;
   right: 12px;
@@ -133,8 +170,26 @@ body {
   border-top: 5px solid var(--text-secondary);
   pointer-events: none;
 }
+.theme-toggle {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.theme-toggle:hover {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-light);
+}
 
-/* ── Method Tabs ── */
+/* ── Workspace Tabs ── */
 .tabs-bar {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -145,7 +200,7 @@ body {
   gap: 2px;
   overflow-x: auto;
 }
-.method-tab {
+.section-tab {
   padding: 0 16px;
   font-size: 13px;
   font-weight: 500;
@@ -161,13 +216,13 @@ body {
   align-items: center;
   gap: 6px;
 }
-.method-tab:hover { color: var(--text); background: var(--bg); }
-.method-tab.active {
+.section-tab:hover { color: var(--text); background: var(--bg); }
+.section-tab.active {
   color: var(--accent);
   border-bottom-color: var(--accent);
   font-weight: 600;
 }
-.method-tab .tab-count {
+.section-tab .tab-count {
   font-size: 11px;
   font-weight: 600;
   background: var(--bg);
@@ -177,7 +232,7 @@ body {
   min-width: 20px;
   text-align: center;
 }
-.method-tab.active .tab-count {
+.section-tab.active .tab-count {
   background: var(--accent-light);
   color: var(--accent);
 }
@@ -220,6 +275,7 @@ body {
 /* ── Paper Panel ── */
 .paper-panel {
   flex: 1 1 60%;
+  min-width: 320px;
   overflow-y: auto;
   padding: 32px 48px 64px;
   background: var(--surface);
@@ -292,7 +348,7 @@ body {
   background: var(--orange-light);
 }
 .para.highlight {
-  background: #fad7dc;
+  background: var(--accent-light);
   border-left-color: var(--accent-hover);
 }
 .para p { margin-bottom: 0.6em; }
@@ -301,8 +357,8 @@ body {
 /* Paragraph typography */
 .para h1, .para h2 { font-size: 18px; font-weight: 700; margin: 8px 0 4px; color: var(--text); }
 .para h3, .para h4 { font-size: 16px; font-weight: 600; margin: 6px 0 2px; color: var(--text); }
-.para code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
-.para pre { background: #f3f4f6; padding: 12px 16px; border-radius: var(--radius-sm); overflow-x: auto; font-size: 13px; margin: 8px 0; }
+.para code { background: var(--bg); padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+.para pre { background: var(--bg); padding: 12px 16px; border-radius: var(--radius-sm); overflow-x: auto; font-size: 13px; margin: 8px 0; }
 .para table { border-collapse: collapse; font-size: 12px; margin: 8px 0; display: block; overflow-x: auto; }
 .para td, .para th { border: 1px solid var(--border); padding: 5px 10px; min-width: 80px; max-width: 320px; word-wrap: break-word; white-space: normal; vertical-align: top; }
 .para th { background: var(--bg); font-weight: 600; }
@@ -312,10 +368,44 @@ body {
 
 /* ── Comment Panel ── */
 .comment-panel {
-  flex: 0 0 480px;
+  flex: 0 0 var(--review-panel-w, 480px);
+  min-width: 320px;
+  max-width: 72vw;
   overflow-y: auto;
   padding: 0;
   background: var(--bg);
+}
+
+.split-resizer {
+  flex: 0 0 8px;
+  width: 8px;
+  margin-left: -4px;
+  margin-right: -4px;
+  cursor: col-resize;
+  position: relative;
+  z-index: 20;
+  background: transparent;
+  touch-action: none;
+}
+.split-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: var(--border);
+  transition: background 0.15s, width 0.15s, left 0.15s;
+}
+.split-resizer:hover::before,
+.split-resizer.dragging::before {
+  left: 2px;
+  width: 4px;
+  background: var(--accent);
+}
+body.resizing-split {
+  cursor: col-resize;
+  user-select: none;
 }
 
 /* Model badge */
@@ -470,7 +560,7 @@ body {
 .badge.partially_verified { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
 .badge.needs_clarification { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
 .badge.confidence { background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; }
-.badge.dimension { background: var(--accent-light); color: var(--accent); border: 1px solid #f2cbd3; }
+.badge.dimension { background: var(--accent-light); color: var(--accent); border: 1px solid var(--accent-border); }
 
 .comment-card .quote {
   color: var(--text-secondary);
@@ -724,6 +814,22 @@ body {
   padding: 20px;
 }
 .comment-filter-bar .filter-label { margin-right: 2px; }
+.filter-select {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  min-width: 118px;
+}
+.filter-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--shadow-focus);
+}
 .filter-toggle {
   display: flex;
   border: 1px solid var(--border);
@@ -750,6 +856,136 @@ body {
   margin-left: auto;
   font-size: 11px;
   color: var(--text-muted);
+}
+
+/* ── Section panels ── */
+.panel-stack {
+  display: grid;
+  gap: 14px;
+}
+.review-section-card,
+.summary-card,
+.paper-card,
+.citation-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-sm);
+}
+.section-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.section-title {
+  font-family: var(--font-serif);
+  font-size: 25px;
+  font-weight: 400;
+  line-height: 1.18;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+.section-body {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text);
+}
+.section-body ul,
+.section-body ol {
+  padding-left: 18px;
+  margin: 8px 0;
+}
+.summary-grid,
+.citation-split {
+  display: grid;
+  gap: 12px;
+}
+.score-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.score-tile {
+  border: 1px solid var(--border-light);
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+}
+.score-label {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 5px;
+}
+.score-value {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+.tool-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 10px 0;
+}
+.tool-btn {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.tool-btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.tool-btn.secondary {
+  color: var(--accent);
+  background: var(--accent-light);
+  border-color: var(--accent-border);
+}
+.paper-card-title,
+.citation-card-title {
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 5px;
+}
+.paper-card-meta,
+.citation-card-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+  margin-bottom: 6px;
+}
+.paper-card-abstract {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.paper-card a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.paper-card a:hover { text-decoration: underline; }
+.notice {
+  color: var(--text-secondary);
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 /* ── Scrollbar ── */
@@ -830,6 +1066,7 @@ body {
   .header .separator { display: none; }
   .legend { display: none; }
   .paper-select-wrapper { order: 4; max-width: 100%; width: 100%; }
+  .method-select-wrapper { order: 5; flex-basis: 100%; width: 100%; }
 
   /* Tabs + metrics: don't shrink */
   .tabs-bar { flex-shrink: 0; padding: 0 12px; }
@@ -848,6 +1085,7 @@ body {
   .paper-panel {
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
+    min-width: 0;
     padding: 20px 16px 72px;
     border-right: none;
     overflow-y: auto;
@@ -865,10 +1103,13 @@ body {
     top: 0; left: 0; right: 0; bottom: 0;
     flex: none;
     width: 100%;
+    min-width: 0;
+    max-width: none;
     display: none;
     overflow-y: auto;
     padding-bottom: 56px;
   }
+  .split-resizer { display: none; }
   .comment-panel.mobile-active { display: block; }
 
   /* Show the mobile nav */
@@ -878,6 +1119,7 @@ body {
 @media (max-width: 480px) {
   .version-badge { display: none; }
   .metrics-bar { font-size: 10px; gap: 8px; }
+  .score-grid { grid-template-columns: 1fr; }
 }
 </style>
 </head>
@@ -890,12 +1132,19 @@ body {
   <div class="paper-select-wrapper">
     <select id="paper-select"></select>
   </div>
+  <div class="method-select-wrapper">
+    <select id="method-select" title="Review method"></select>
+  </div>
+  <button class="theme-toggle" id="theme-toggle" title="Toggle day/night mode" aria-label="Toggle day/night mode">
+    <span id="theme-toggle-icon">☾</span>
+  </button>
   <div class="legend" id="legend"></div>
 </div>
-<div class="tabs-bar" id="method-tabs"></div>
+<div class="tabs-bar" id="section-tabs"></div>
 <div class="metrics-bar" id="metrics-bar"></div>
 <div class="main">
   <div class="paper-panel" id="paper-panel"></div>
+  <div class="split-resizer" id="split-resizer" role="separator" aria-orientation="vertical" aria-label="Resize review panel" tabindex="0"></div>
   <div class="comment-panel" id="comment-panel"></div>
 </div>
 
@@ -917,16 +1166,27 @@ let paperCache = {};
 let currentPaperSlug = null;
 let currentMethod = null;
 const METHOD_ORDER = ['ground_truth','zero_shot','local','progressive','progressive_full','grounded_progressive'];
+const SECTION_TABS = [
+  { id: 'inline', label: 'Inline Review' },
+  { id: 'summary', label: 'Summary' },
+  { id: 'related', label: 'Related Work' },
+  { id: 'citation', label: 'Citation' },
+];
+let currentSection = 'inline';
 let activeCommentId = null;
 let renderedPaperSlug = null;
 let typesetQueue = Promise.resolve();
 let resolvedIds = new Set();
 let showOnlyOpen = false;
+let severityFilter = 'all';
+let dimensionFilter = 'all';
 let mobilePanelActive = 'paper';
 let feedbackState = {};   // commentId -> { helpful:bool, unhelpful:bool, rebuttal:bool }
 let feedbackOpenForm = null;  // `${commentId}:${type}` while a form is expanded
 let feedbackConfigured = null;
 const OVERALL_FEEDBACK_ID = '__overall_feedback__';
+let relatedWorkCache = {};
+let splitDragState = null;
 
 const UNHELPFUL_REASONS = [
   'Not a real issue',
@@ -938,6 +1198,107 @@ const UNHELPFUL_REASONS = [
 ];
 
 function isMobile() { return window.innerWidth <= 768; }
+
+function initSplitResizer() {
+  const resizer = document.getElementById('split-resizer');
+  const panel = document.getElementById('comment-panel');
+  if (!resizer || !panel) return;
+
+  const saved = parseInt(localStorage.getItem('oar_review_panel_width') || '', 10);
+  if (Number.isFinite(saved)) setReviewPanelWidth(saved);
+
+  resizer.addEventListener('pointerdown', (e) => {
+    if (isMobile()) return;
+    splitDragState = {
+      startX: e.clientX,
+      startWidth: panel.getBoundingClientRect().width,
+    };
+    resizer.setPointerCapture(e.pointerId);
+    resizer.classList.add('dragging');
+    document.body.classList.add('resizing-split');
+    e.preventDefault();
+  });
+
+  resizer.addEventListener('pointermove', (e) => {
+    if (!splitDragState) return;
+    const nextWidth = splitDragState.startWidth - (e.clientX - splitDragState.startX);
+    setReviewPanelWidth(nextWidth, true);
+  });
+
+  const finishDrag = (e) => {
+    if (!splitDragState) return;
+    const finalWidth = panel.getBoundingClientRect().width;
+    localStorage.setItem('oar_review_panel_width', String(Math.round(finalWidth)));
+    splitDragState = null;
+    resizer.classList.remove('dragging');
+    document.body.classList.remove('resizing-split');
+    if (e && resizer.hasPointerCapture && resizer.hasPointerCapture(e.pointerId)) {
+      resizer.releasePointerCapture(e.pointerId);
+    }
+  };
+  resizer.addEventListener('pointerup', finishDrag);
+  resizer.addEventListener('pointercancel', finishDrag);
+
+  resizer.addEventListener('keydown', (e) => {
+    if (isMobile()) return;
+    const current = panel.getBoundingClientRect().width;
+    const step = e.shiftKey ? 80 : 24;
+    if (e.key === 'ArrowLeft') {
+      setReviewPanelWidth(current + step);
+      e.preventDefault();
+    } else if (e.key === 'ArrowRight') {
+      setReviewPanelWidth(current - step);
+      e.preventDefault();
+    } else if (e.key === 'Home') {
+      setReviewPanelWidth(360);
+      e.preventDefault();
+    } else if (e.key === 'End') {
+      setReviewPanelWidth(720);
+      e.preventDefault();
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    if (isMobile()) return;
+    setReviewPanelWidth(panel.getBoundingClientRect().width, true);
+  });
+}
+
+function setReviewPanelWidth(width, skipPersist = false) {
+  const main = document.querySelector('.main');
+  if (!main) return;
+  const max = Math.max(360, Math.min(window.innerWidth * 0.72, main.getBoundingClientRect().width - 360));
+  const clamped = Math.max(320, Math.min(max, Math.round(width)));
+  document.documentElement.style.setProperty('--review-panel-w', `${clamped}px`);
+  const resizer = document.getElementById('split-resizer');
+  if (resizer) {
+    resizer.setAttribute('aria-valuenow', String(clamped));
+    resizer.setAttribute('aria-valuemin', '320');
+    resizer.setAttribute('aria-valuemax', String(Math.round(max)));
+  }
+  if (!skipPersist) {
+    localStorage.setItem('oar_review_panel_width', String(clamped));
+  }
+}
+
+function initTheme() {
+  const saved = localStorage.getItem('oar_theme') || 'light';
+  setTheme(saved === 'dark' ? 'dark' : 'light');
+  const btn = document.getElementById('theme-toggle');
+  if (btn) {
+    btn.onclick = () => {
+      const cur = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+      setTheme(cur === 'dark' ? 'light' : 'dark');
+    };
+  }
+}
+
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem('oar_theme', theme);
+  const icon = document.getElementById('theme-toggle-icon');
+  if (icon) icon.textContent = theme === 'dark' ? '☀' : '☾';
+}
 
 function switchMobilePanel(panel) {
   mobilePanelActive = panel;
@@ -1178,12 +1539,34 @@ function getResolvedCount(comments) {
 }
 
 function isHiddenByFilter(c) {
-  return showOnlyOpen && resolvedIds.has(c.id);
+  if (showOnlyOpen && resolvedIds.has(c.id)) return true;
+  if (severityFilter !== 'all' && c.severity !== severityFilter) return true;
+  if (dimensionFilter !== 'all' && !commentMatchesDimension(c, dimensionFilter)) return true;
+  return false;
 }
 
 function getVisibleComments(comments) {
-  if (!showOnlyOpen) return comments;
-  return comments.filter(c => !resolvedIds.has(c.id));
+  return comments.filter(c => !isHiddenByFilter(c));
+}
+
+function normalizedDimension(c) {
+  const raw = (c.rubric_dimension || c.comment_type || '').toLowerCase().replace(/\s+/g, '_');
+  const haystack = `${c.title || ''} ${c.explanation || ''} ${c.claim || ''}`.toLowerCase();
+  if (raw.includes('soundness') || raw.includes('method') || raw.includes('result') || raw.includes('claim_accuracy')) return 'soundness';
+  if (raw.includes('clarity') || raw.includes('presentation')) return 'presentation';
+  if (raw.includes('novelty') || raw.includes('contribution')) return 'contribution';
+  if (haystack.match(/\b(sound|correct|proof|theorem|lemma|method|experiment|baseline|evaluation|claim|evidence)\b/)) return 'soundness';
+  if (haystack.match(/\b(clear|presentation|writing|notation|figure|table|organization)\b/)) return 'presentation';
+  if (haystack.match(/\b(novel|contribution|related work|citation|positioning)\b/)) return 'contribution';
+  return raw || 'other';
+}
+
+function commentMatchesDimension(c, dim) {
+  if (dim === 'all') return true;
+  if (['soundness', 'presentation', 'contribution'].includes(dim)) {
+    return normalizedDimension(c) === dim;
+  }
+  return (c.rubric_dimension || '').toLowerCase() === dim;
 }
 
 function typesetElement(el) {
@@ -1218,6 +1601,9 @@ function renderMarkdownWithMath(text) {
 }
 
 async function init() {
+  initTheme();
+  initSplitResizer();
+  buildSectionTabs();
   // Try /data/index.json (serve mode) then data/index.json (static mode)
   let resp;
   try {
@@ -1231,7 +1617,7 @@ async function init() {
   if (INDEX.papers.length > 0) {
     currentPaperSlug = INDEX.papers[0].slug;
     await loadPaper(currentPaperSlug);
-    buildMethodTabs();
+    buildMethodSelect();
     render();
   }
 }
@@ -1268,7 +1654,7 @@ function buildPaperSelect() {
     renderedPaperSlug = null;
     if (isMobile()) switchMobilePanel('paper');
     await loadPaper(currentPaperSlug);
-    buildMethodTabs();
+    buildMethodSelect();
     render();
   });
 }
@@ -1290,9 +1676,10 @@ function hasGroundTruth(paper) {
   return paper && paper.methods && !!paper.methods.ground_truth;
 }
 
-function buildMethodTabs() {
-  const container = document.getElementById('method-tabs');
-  container.innerHTML = '';
+function buildMethodSelect() {
+  const sel = document.getElementById('method-select');
+  if (!sel) return;
+  sel.innerHTML = '';
   const paper = getCurrentPaper();
   if (!paper) return;
   const keys = getMethodKeys(paper);
@@ -1300,29 +1687,39 @@ function buildMethodTabs() {
     currentMethod = keys[0];
   }
   keys.forEach(key => {
-    const tab = document.createElement('button');
-    tab.className = 'method-tab' + (key === currentMethod ? ' active' : '');
+    const opt = document.createElement('option');
+    opt.value = key;
     const comments = paper.methods[key].comments;
     const count = comments.length;
-    const resolvedCount = (key === currentMethod) ? getResolvedCount(comments) : 0;
-    const openCount = count - resolvedCount;
-    const badgeTitle = resolvedCount > 0 ? `${openCount} open, ${resolvedCount} resolved` : '';
-    const badgeText = resolvedCount > 0 ? `${openCount}/${count}` : `${count}`;
-    let countLabel;
-    if (hasSeverityData(comments)) {
-      const mc = comments.filter(c => c.severity === 'major').length;
-      const modc = comments.filter(c => c.severity === 'moderate').length;
-      const mic = comments.filter(c => c.severity === 'minor').length;
-      countLabel = `<span class="tab-count" title="${badgeTitle || `${mc} major, ${modc} moderate, ${mic} minor`}">${badgeText}</span>`;
-    } else {
-      countLabel = `<span class="tab-count" title="${badgeTitle}">${badgeText}</span>`;
-    }
-    tab.innerHTML = `${escapeHtml(paper.methods[key].label)}${countLabel}`;
-    tab.addEventListener('click', () => {
-      currentMethod = key;
+    opt.textContent = `${paper.methods[key].label} (${count})`;
+    opt.selected = key === currentMethod;
+    sel.appendChild(opt);
+  });
+  sel.onchange = () => {
+    currentMethod = sel.value;
+    activeCommentId = null;
+    severityFilter = 'all';
+    dimensionFilter = 'all';
+    render();
+  };
+}
+
+function buildSectionTabs() {
+  const container = document.getElementById('section-tabs');
+  if (!container) return;
+  container.innerHTML = '';
+  SECTION_TABS.forEach(section => {
+    const tab = document.createElement('button');
+    tab.className = 'section-tab' + (section.id === currentSection ? ' active' : '');
+    tab.dataset.section = section.id;
+    tab.innerHTML = `${section.label}<span class="tab-count" id="section-count-${section.id}"></span>`;
+    tab.onclick = () => {
+      currentSection = section.id;
       activeCommentId = null;
+      buildSectionTabs();
       render();
-    });
+      if (isMobile()) switchMobilePanel('comments');
+    };
     container.appendChild(tab);
   });
 }
@@ -1333,7 +1730,8 @@ function render() {
   const paperChanged = renderedPaperSlug !== currentPaperSlug;
   loadResolvedState();
   loadFeedbackState();
-  buildMethodTabs();
+  buildMethodSelect();
+  buildSectionTabs();
   renderMetrics();
   renderLegend();
 
@@ -1344,7 +1742,7 @@ function render() {
   }
 
   updatePaperHighlights();
-  renderComments();
+  renderRightPanel();
   const _m = paper && paper.methods[currentMethod];
   if (_m) updateMobileNavBadge(getVisibleComments(_m.comments).length);
 }
@@ -1525,7 +1923,7 @@ function updatePaperHighlights() {
     const hasComment = commentIndices.has(idx);
     const hasGtMatch = gtIndices.has(idx);
     const isHighlight = activeCommentId != null && method && method.comments.some(
-      c => c.id === activeCommentId && c.paragraph_index === idx
+      c => c.id === activeCommentId && c.paragraph_index === idx && !isHiddenByFilter(c)
     );
 
     el.className = 'para';
@@ -1543,7 +1941,7 @@ function updatePaperHighlights() {
   panel.querySelectorAll('.para.has-comment, .para.has-gt-match, .para.severity-major, .para.severity-moderate, .para.severity-minor').forEach(el => {
     el.onclick = () => {
       const idx = parseInt(el.dataset.idx);
-      const comment = method.comments.find(c => c.paragraph_index === idx);
+      const comment = method.comments.find(c => c.paragraph_index === idx && !isHiddenByFilter(c));
       if (comment) {
         activeCommentId = comment.id;
         render();
@@ -1557,6 +1955,39 @@ function updatePaperHighlights() {
 
 function hasSeverityData(comments) {
   return comments.some(c => c.severity);
+}
+
+function renderRightPanel() {
+  if (currentSection === 'summary') {
+    renderSummarySection();
+  } else if (currentSection === 'related') {
+    renderRelatedWorkSection();
+  } else if (currentSection === 'citation') {
+    renderCitationSection();
+  } else {
+    renderComments();
+  }
+  updateSectionCounts();
+}
+
+function updateSectionCounts() {
+  const paper = getCurrentPaper();
+  if (!paper || !paper.methods[currentMethod]) return;
+  const method = paper.methods[currentMethod];
+  const visibleCount = getVisibleComments(method.comments).length;
+  const citationMethod = findCitationMethod();
+  const values = {
+    inline: visibleCount,
+    summary: method.final_review || method.overall_feedback ? 'on' : '',
+    related: getRelatedWorkData(method) ? 'on' : '',
+    citation: citationMethod ? citationMethod.comments.length : '',
+  };
+  Object.entries(values).forEach(([id, value]) => {
+    const el = document.getElementById(`section-count-${id}`);
+    if (!el) return;
+    el.textContent = value === 'on' ? '•' : value;
+    el.style.display = value === '' ? 'none' : '';
+  });
 }
 
 function renderComments() {
@@ -1576,6 +2007,20 @@ function renderComments() {
       <button data-filter="all" class="${!showOnlyOpen ? 'active' : ''}">All</button>
       <button data-filter="open" class="${showOnlyOpen ? 'active' : ''}">Open</button>
     </div>
+    <select class="filter-select" id="severity-filter" title="Severity filter">
+      <option value="all"${severityFilter === 'all' ? ' selected' : ''}>All severity</option>
+      <option value="major"${severityFilter === 'major' ? ' selected' : ''}>Major only</option>
+      <option value="moderate"${severityFilter === 'moderate' ? ' selected' : ''}>Moderate only</option>
+      <option value="minor"${severityFilter === 'minor' ? ' selected' : ''}>Minor only</option>
+    </select>
+    <select class="filter-select" id="dimension-filter" title="Rubric filter">
+      <option value="all"${dimensionFilter === 'all' ? ' selected' : ''}>All dimensions</option>
+      <option value="soundness"${dimensionFilter === 'soundness' ? ' selected' : ''}>Soundness</option>
+      <option value="presentation"${dimensionFilter === 'presentation' ? ' selected' : ''}>Presentation</option>
+      <option value="contribution"${dimensionFilter === 'contribution' ? ' selected' : ''}>Contribution</option>
+      <option value="reproducibility"${dimensionFilter === 'reproducibility' ? ' selected' : ''}>Reproducibility</option>
+      <option value="claim_accuracy"${dimensionFilter === 'claim_accuracy' ? ' selected' : ''}>Claim accuracy</option>
+    </select>
     ${resolvedCount > 0 ? `<span class="filter-resolved-count">${resolvedCount} resolved</span>` : ''}
   </div>`;
 
@@ -1659,6 +2104,18 @@ function renderComments() {
       render();
     };
   });
+  const sevSel = document.getElementById('severity-filter');
+  if (sevSel) sevSel.onchange = () => {
+    severityFilter = sevSel.value;
+    activeCommentId = null;
+    render();
+  };
+  const dimSel = document.getElementById('dimension-filter');
+  if (dimSel) dimSel.onchange = () => {
+    dimensionFilter = dimSel.value;
+    activeCommentId = null;
+    render();
+  };
 
   panel.querySelectorAll('.resolve-btn').forEach(btn => {
     btn.onclick = (e) => {
@@ -1721,6 +2178,265 @@ function renderComments() {
       }
     };
   });
+}
+
+function getReviewText(method) {
+  return (method && (method.final_review || method.overall_feedback || '') || '').trim();
+}
+
+function extractMarkdownSection(text, names) {
+  if (!text) return '';
+  const escaped = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const re = new RegExp(`(?:^|\\n)#{1,3}\\s*(?:${escaped})\\s*\\n([\\s\\S]*?)(?=\\n#{1,3}\\s+|$)`, 'i');
+  const match = text.match(re);
+  return match ? match[1].trim() : '';
+}
+
+function extractRating(text) {
+  const match = text.match(/\b(?:rating|score)\s*[:\-]\s*([^\n]+)/i);
+  return match ? match[1].trim().slice(0, 40) : 'Not stated';
+}
+
+function extractConfidence(text, method) {
+  const match = text.match(/\bconfidence\s*[:\-]\s*([^\n]+)/i);
+  if (match) return match[1].trim().slice(0, 40);
+  const confs = method.comments.map(c => c.confidence).filter(Boolean);
+  if (!confs.length) return 'Not stated';
+  const counts = confs.reduce((acc, c) => {
+    acc[c] = (acc[c] || 0) + 1;
+    return acc;
+  }, {});
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+}
+
+function dimensionSummary(method, dim) {
+  const comments = method.comments.filter(c => commentMatchesDimension(c, dim));
+  const major = comments.filter(c => c.severity === 'major').length;
+  const moderate = comments.filter(c => c.severity === 'moderate').length;
+  if (!comments.length) return 'No flagged issues';
+  if (major) return `${major} major, ${moderate} moderate`;
+  if (moderate) return `${moderate} moderate`;
+  return `${comments.length} minor/other`;
+}
+
+function renderSummarySection() {
+  const panel = document.getElementById('comment-panel');
+  const paper = getCurrentPaper();
+  const method = paper.methods[currentMethod];
+  const text = getReviewText(method);
+  const summary = extractMarkdownSection(text, ['Summary']) || method.overall_feedback || text || 'No summary is available for this method.';
+  const strengths = extractMarkdownSection(text, ['Strengths', 'Strength']);
+  const weaknesses = extractMarkdownSection(text, ['Weaknesses', 'Weakness']);
+  const questions = extractMarkdownSection(text, ['Questions and Suggestions', 'Questions', 'Questions / Suggestions']);
+
+  panel.innerHTML = `<div class="comment-panel-content panel-stack">
+    <div class="summary-card">
+      <div class="section-eyebrow">Summary</div>
+      <div class="section-title">Review Synthesis</div>
+      <div class="section-body">${renderMarkdownWithMath(summary)}</div>
+    </div>
+    <div class="score-grid">
+      <div class="score-tile"><div class="score-label">Soundness</div><div class="score-value">${escapeHtml(dimensionSummary(method, 'soundness'))}</div></div>
+      <div class="score-tile"><div class="score-label">Presentation</div><div class="score-value">${escapeHtml(dimensionSummary(method, 'presentation'))}</div></div>
+      <div class="score-tile"><div class="score-label">Contribution</div><div class="score-value">${escapeHtml(dimensionSummary(method, 'contribution'))}</div></div>
+      <div class="score-tile"><div class="score-label">Rating</div><div class="score-value">${escapeHtml(extractRating(text))}</div></div>
+      <div class="score-tile"><div class="score-label">Confidence</div><div class="score-value">${escapeHtml(extractConfidence(text, method))}</div></div>
+    </div>
+    <div class="summary-grid">
+      <div class="summary-card"><div class="section-eyebrow">Strengths</div><div class="section-body">${strengths ? renderMarkdownWithMath(strengths) : '<span class="empty-state">No strengths section found.</span>'}</div></div>
+      <div class="summary-card"><div class="section-eyebrow">Weaknesses</div><div class="section-body">${weaknesses ? renderMarkdownWithMath(weaknesses) : renderWeaknessFallback(method)}</div></div>
+      <div class="summary-card"><div class="section-eyebrow">Questions</div><div class="section-body">${questions ? renderMarkdownWithMath(questions) : renderQuestionsFallback(method)}</div></div>
+    </div>
+  </div>`;
+  typesetElement(panel);
+}
+
+function renderWeaknessFallback(method) {
+  const major = method.comments.filter(c => c.severity === 'major').slice(0, 4);
+  const items = (major.length ? major : method.comments.slice(0, 4)).map(c => `<li>${escapeHtml(c.title)}</li>`);
+  return items.length ? `<ul>${items.join('')}</ul>` : '<span class="empty-state">No weaknesses found.</span>';
+}
+
+function renderQuestionsFallback(method) {
+  const qs = method.comments
+    .filter(c => /question|unclear|clarif|missing|why|how/i.test(`${c.title} ${c.explanation}`))
+    .slice(0, 4)
+    .map(c => `<li>${escapeHtml(c.title)}</li>`);
+  return qs.length ? `<ul>${qs.join('')}</ul>` : '<span class="empty-state">No explicit questions found.</span>';
+}
+
+function getRelatedWorkData(method) {
+  const outputs = method && method.verifier_outputs;
+  if (!outputs) return null;
+  if (outputs.related_work_searcher && outputs.novelty_delta) {
+    return {
+      ...outputs.related_work_searcher,
+      missing_comparisons_or_citations: outputs.novelty_delta.missing_comparisons_or_citations || [],
+      closest_related_work: outputs.novelty_delta.closest_related_work || [],
+      novelty_limitations: outputs.novelty_delta.limitations || [],
+    };
+  }
+  return outputs.related_work_searcher || outputs.novelty_delta || null;
+}
+
+function renderRelatedWorkSection() {
+  const panel = document.getElementById('comment-panel');
+  const paper = getCurrentPaper();
+  const method = paper.methods[currentMethod];
+  const existing = getRelatedWorkData(method);
+  let html = `<div class="comment-panel-content panel-stack">
+    <div class="review-section-card">
+      <div class="section-eyebrow">Related Work</div>
+      <div class="section-title">Who else should be cited or read?</div>
+      <div class="section-body">Uses grounded-review related work when available, and can query Semantic Scholar recommendations from the paper's reference list. Connected Papers enrichment is shown when the optional client and API key are configured.</div>
+      <div class="tool-row">
+        <button class="tool-btn" id="load-related-work">Find from references</button>
+      </div>
+    </div>`;
+
+  if (existing) html += renderExistingRelatedWork(existing);
+  const cached = relatedWorkCache[currentPaperSlug];
+  if (cached) html += renderApiRelatedWork(cached);
+  else if (!existing) html += `<div class="notice">No related-work verifier output is saved for this method yet. Run grounded progressive with novelty delta for paper-grounded positioning notes, or use the reference-list search above.</div>`;
+  html += '</div>';
+  panel.innerHTML = html;
+  const btn = document.getElementById('load-related-work');
+  if (btn) btn.onclick = loadRelatedWorkFromApi;
+}
+
+function renderExistingRelatedWork(data) {
+  const related = Array.isArray(data.related_papers) ? data.related_papers : [];
+  const closest = Array.isArray(data.closest_related_work) ? data.closest_related_work : [];
+  const notes = Array.isArray(data.positioning_notes) ? data.positioning_notes : [];
+  const missing = Array.isArray(data.missing_comparisons_or_citations) ? data.missing_comparisons_or_citations : [];
+  let html = `<div class="review-section-card"><div class="section-eyebrow">Saved Verifier Output</div>`;
+  if (notes.length) {
+    html += `<div class="section-body"><ul>${notes.map(n => `<li>${escapeHtml(n.note || n.observation || JSON.stringify(n))}</li>`).join('')}</ul></div>`;
+  }
+  if (missing.length) {
+    html += `<div class="section-body"><strong>Missing comparisons or citations</strong><ul>${missing.map(n => `<li>${escapeHtml(n.work_or_area || n.title || JSON.stringify(n))}</li>`).join('')}</ul></div>`;
+  }
+  closest.slice(0, 6).forEach(p => { html += renderPaperCard(p); });
+  related.slice(0, 8).forEach(p => { html += renderPaperCard(p); });
+  html += `</div>`;
+  return html;
+}
+
+async function loadRelatedWorkFromApi() {
+  const panel = document.getElementById('comment-panel');
+  const btn = document.getElementById('load-related-work');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Searching...';
+  }
+  try {
+    const resp = await fetch(`/api/related-work/${encodeURIComponent(currentPaperSlug)}`);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    relatedWorkCache[currentPaperSlug] = data;
+    renderRelatedWorkSection();
+  } catch (e) {
+    const err = document.createElement('div');
+    err.className = 'notice';
+    err.textContent = `Related-work search failed: ${e.message}`;
+    panel.querySelector('.comment-panel-content')?.appendChild(err);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Find from references';
+    }
+  }
+}
+
+function renderApiRelatedWork(data) {
+  let html = `<div class="review-section-card">
+    <div class="section-eyebrow">Semantic Scholar Recommendations</div>
+    <div class="section-body">${data.reference_count || 0} reference entries inspected; ${(data.matched_references || []).length} matched to Semantic Scholar IDs.</div>`;
+  (data.recommended_papers || []).slice(0, 12).forEach(p => { html += renderPaperCard(p); });
+  if (data.connected_papers) {
+    html += `<div class="notice">Connected Papers: ${data.connected_papers.available ? 'graph enrichment available' : escapeHtml(data.connected_papers.reason || 'not available')}</div>`;
+    if (data.connected_papers.available) {
+      const cp = [...(data.connected_papers.common_references || []), ...(data.connected_papers.common_citations || [])].slice(0, 8);
+      cp.forEach(p => { html += renderPaperCard(p); });
+    }
+  }
+  if (data.errors && data.errors.length) {
+    html += `<details class="verifier-details"><summary>Search warnings</summary><pre>${escapeHtml(JSON.stringify(data.errors, null, 2))}</pre></details>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+function renderPaperCard(p) {
+  const authors = Array.isArray(p.authors) ? p.authors.map(a => typeof a === 'string' ? a : a.name).filter(Boolean).slice(0, 4).join(', ') : '';
+  const title = p.title || p.paperTitle || 'Untitled paper';
+  const url = p.url || (p.paperId ? `https://www.semanticscholar.org/paper/${p.paperId}` : '');
+  const abstract = (p.abstract || p.relation || p.why_relevant || '').toString();
+  return `<div class="paper-card">
+    <div class="paper-card-title">${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(title)}</a>` : escapeHtml(title)}</div>
+    <div class="paper-card-meta">${escapeHtml([p.year, authors, p.venue, p.citationCount != null ? `${p.citationCount} citations` : ''].filter(Boolean).join(' · '))}</div>
+    ${abstract ? `<div class="paper-card-abstract">${escapeHtml(abstract.slice(0, 360))}${abstract.length > 360 ? '...' : ''}</div>` : ''}
+  </div>`;
+}
+
+function findCitationMethod() {
+  const paper = getCurrentPaper();
+  if (!paper) return null;
+  const entries = Object.entries(paper.methods || {});
+  const current = paper.methods[currentMethod];
+  if (currentMethod && currentMethod.startsWith('citation_verify')) return current;
+  const found = entries.find(([key]) => key.startsWith('citation_verify'));
+  return found ? found[1] : null;
+}
+
+function renderCitationSection() {
+  const panel = document.getElementById('comment-panel');
+  const citationMethod = findCitationMethod();
+  if (!citationMethod) {
+    panel.innerHTML = `<div class="comment-panel-content panel-stack">
+      <div class="review-section-card">
+        <div class="section-eyebrow">Citation</div>
+        <div class="section-title">Citation checks</div>
+        <div class="notice">No CiteVerify result is saved for this paper. Run <code>openaireview review paper.md --citation-check</code> or <code>--method citation_verify</code> to populate citation hallucination detection and claim-citation verification.</div>
+      </div>
+    </div>`;
+    return;
+  }
+  const comments = citationMethod.comments || [];
+  const hallucinations = comments.filter(c => /hallucinat|metadata|missing from references|reference/i.test(`${c.title} ${c.explanation}`));
+  const claimChecks = comments.filter(c => !hallucinations.includes(c));
+  panel.innerHTML = `<div class="comment-panel-content panel-stack">
+    <div class="review-section-card">
+      <div class="section-eyebrow">Citation</div>
+      <div class="section-title">CiteVerify Results</div>
+      <div class="section-body">${renderMarkdownWithMath(citationMethod.overall_feedback || 'Citation verification completed.')}</div>
+    </div>
+    <div class="citation-split">
+      <div class="citation-card">
+        <div class="section-eyebrow">Citation Hallucination Detection</div>
+        ${hallucinations.length ? hallucinations.map(renderCitationCard).join('') : '<div class="empty-state">No citation hallucination findings.</div>'}
+      </div>
+      <div class="citation-card">
+        <div class="section-eyebrow">Claim Citation Verification</div>
+        ${claimChecks.length ? claimChecks.map(renderCitationCard).join('') : '<div class="empty-state">No claim-citation support findings.</div>'}
+      </div>
+    </div>
+    ${citationMethod.verifier_outputs ? renderVerifierOutputs(citationMethod.verifier_outputs) : ''}
+  </div>`;
+  typesetElement(panel);
+}
+
+function renderCitationCard(c) {
+  return `<div class="comment-card" id="card-${c.id}" data-id="${c.id}">
+    <div class="card-header">
+      <span class="card-title">${escapeHtml(c.title)}</span>
+      ${c.severity ? `<span class="badge ${c.severity}">${c.severity}</span>` : ''}
+      ${c.verification_status ? `<span class="badge ${c.verification_status}">${c.verification_status.replaceAll('_', ' ')}</span>` : ''}
+    </div>
+    ${c.claim ? `<div class="explanation"><strong>Claim:</strong> ${renderMarkdownWithMath(c.claim)}</div>` : ''}
+    ${c.quote ? `<div class="quote">${renderMarkdownWithMath(wrapBareLaTeX(c.quote))}</div>` : ''}
+    ${c.evidence ? `<div class="explanation"><strong>Evidence:</strong> ${renderMarkdownWithMath(c.evidence)}</div>` : ''}
+    ${c.explanation ? `<div class="explanation">${renderMarkdownWithMath(c.explanation)}</div>` : ''}
+  </div>`;
 }
 
 function renderCommentCard(c) {
