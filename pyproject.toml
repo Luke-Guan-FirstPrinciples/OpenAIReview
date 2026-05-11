@@ -40,3 +40,4 @@ citation = [
     "citeverify @ git+https://github.com/FirstPrinciplesFoundation/CiteVerify.git@240b7be2515755fad23a93e71f08f450ec35a772",
 ]
 related = ["connectedpapers-py"]
+observability = ["langsmith>=0.8.0"]

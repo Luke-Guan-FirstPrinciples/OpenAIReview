@@ -13,9 +13,10 @@ import os
 import re
 import sys
 import tempfile
+from contextlib import contextmanager
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from .models import Comment, ReviewResult
 from .utils import locate_comment_in_document, split_into_paragraphs
@@ -26,6 +27,53 @@ DEFAULT_CITATION_MODEL = "gpt-5.2"
 
 class CiteVerifyUnavailable(RuntimeError):
     """Raised when CiteVerify or one of its optional dependencies is missing."""
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _langsmith_tracing_enabled() -> bool:
+    return _env_flag("LANGSMITH_TRACING") or _env_flag("LANGCHAIN_TRACING_V2")
+
+
+@contextmanager
+def _langsmith_citation_trace(
+    *,
+    paper_slug: str,
+    model: str,
+    provider: str,
+    infer_citations: bool,
+    skip_alignment: bool,
+    try_web_search: bool,
+    use_full_text: bool,
+) -> Iterator[Any | None]:
+    if not _langsmith_tracing_enabled():
+        yield None
+        return
+    try:
+        from langsmith.run_helpers import trace  # type: ignore
+    except Exception as exc:
+        print(f"  LangSmith tracing requested but unavailable: {exc}", file=sys.stderr)
+        yield None
+        return
+
+    with trace(
+        "citation_hallucination_detection",
+        run_type="chain",
+        inputs={
+            "paper_slug": paper_slug,
+            "model": model,
+            "provider": provider,
+            "infer_citations": infer_citations,
+            "skip_alignment": skip_alignment,
+            "try_web_search": try_web_search,
+            "use_full_text": use_full_text,
+        },
+        tags=["openaireview", "citation_verify", "hallucination_detection"],
+        metadata={"component": "CiteVerify"},
+    ) as run:
+        yield run
 
 
 def _candidate_citeverify_paths(explicit_path: str | Path | None = None) -> list[Path]:
@@ -313,30 +361,49 @@ def review_citations(
     normalized = _normalize_for_citeverify(document_content)
     paragraphs = split_into_paragraphs(document_content)
 
-    with tempfile.TemporaryDirectory(prefix="openaireview-citeverify-") as tmpdir:
-        report_path = Path(tmpdir) / f"{paper_slug or 'paper'}.md"
-        report_path.write_text(normalized, encoding="utf-8")
-        pipeline_result = citeverify.run_pipeline(
-            report_path,
-            infer_citations=infer_citations,
-            steps_json_path=steps_json_path,
-            skip_alignment=skip_alignment,
-            try_web_search=try_web_search,
-            use_full_text=use_full_text,
-            llm_provider=cv_provider,
-            llm_model=cv_model,
-            abstract_compare_provider=cv_provider,
-            abstract_compare_model=cv_model,
-            passage_compare_provider=cv_provider,
-            passage_compare_model=cv_model,
-            fulltext_llm_provider=cv_provider,
-            fulltext_llm_model=cv_model,
-            reasoning_effort=reasoning_effort,
-            verbose=verbose,
-        )
+    with _langsmith_citation_trace(
+        paper_slug=paper_slug,
+        model=cv_model,
+        provider=cv_provider,
+        infer_citations=infer_citations,
+        skip_alignment=skip_alignment,
+        try_web_search=try_web_search,
+        use_full_text=use_full_text,
+    ) as langsmith_run:
+        with tempfile.TemporaryDirectory(prefix="openaireview-citeverify-") as tmpdir:
+            report_path = Path(tmpdir) / f"{paper_slug or 'paper'}.md"
+            report_path.write_text(normalized, encoding="utf-8")
+            pipeline_result = citeverify.run_pipeline(
+                report_path,
+                infer_citations=infer_citations,
+                steps_json_path=steps_json_path,
+                skip_alignment=skip_alignment,
+                try_web_search=try_web_search,
+                use_full_text=use_full_text,
+                llm_provider=cv_provider,
+                llm_model=cv_model,
+                abstract_compare_provider=cv_provider,
+                abstract_compare_model=cv_model,
+                passage_compare_provider=cv_provider,
+                passage_compare_model=cv_model,
+                fulltext_llm_provider=cv_provider,
+                fulltext_llm_model=cv_model,
+                reasoning_effort=reasoning_effort,
+                verbose=verbose,
+            )
 
-    comments = _comments_from_pipeline(pipeline_result, paragraphs)
-    summary = _get_attr(pipeline_result, "summary")
+        comments = _comments_from_pipeline(pipeline_result, paragraphs)
+        summary = _get_attr(pipeline_result, "summary")
+        if langsmith_run is not None:
+            langsmith_run.end(outputs={
+                "summary": _to_plain_data(summary),
+                "num_comments": len(comments),
+                "num_hallucination_findings": sum(
+                    1
+                    for c in comments
+                    if re.search(r"hallucinat|metadata|missing from references", c.title, re.I)
+                ),
+            })
     return ReviewResult(
         method="citation_verify",
         paper_slug=paper_slug,

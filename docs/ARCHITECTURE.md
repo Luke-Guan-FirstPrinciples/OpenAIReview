@@ -145,7 +145,7 @@ Wraps `progressive` and feeds its output through paper-grounded verifier stages.
 
 - `MAX_PAPER_TOKENS_FOR_VERIFIERS = 40_000`: paper text is truncated for the verifier prompts to keep context manageable.
 - `MAX_CANDIDATE_ISSUES = 80`: at most 80 candidate issues are passed to the refutation checker.
-- `_search_semantic_scholar` calls the public Semantic Scholar API (uses `S2_API_KEY` if set). Errors are captured per-query and surfaced in `related_work.errors` rather than aborting the run.
+- `_search_semantic_scholar` calls the public Semantic Scholar API (uses `S2_API_KEY` if set) through a process-local 1 call/second throttle by default. Errors are captured per-query and surfaced in `related_work.errors` rather than aborting the run.
 - `--novelty-delta` adds the `novelty_delta_verifier` between the related-work search and the refutation checker. The novelty output is fed into both the refutation checker and the final review prompt.
 
 ## LLM access ([src/reviewer/client.py](../src/reviewer/client.py))

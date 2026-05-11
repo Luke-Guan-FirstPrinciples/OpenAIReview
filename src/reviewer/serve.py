@@ -13,11 +13,14 @@ from urllib.request import Request, urlopen
 
 from . import __version__
 from . import feedback_db
+from .rate_limits import throttle
 
 
 VIZ_DIR = Path(__file__).parent / "viz"
 MAX_FEEDBACK_BYTES = 16 * 1024
 RELATED_WORK_CACHE: dict[tuple[str, str], dict] = {}
+S2_RATE_LIMIT_KEY = "semantic_scholar"
+S2_RATE_LIMIT_ENV = "SEMANTIC_SCHOLAR_MIN_INTERVAL_SECONDS"
 
 
 def _s2_headers() -> dict[str, str]:
@@ -60,6 +63,7 @@ def _s2_search_reference(reference: str) -> dict | None:
         f"https://api.semanticscholar.org/graph/v1/paper/search?{params}",
         headers=_s2_headers(),
     )
+    throttle(S2_RATE_LIMIT_KEY, min_interval_env=S2_RATE_LIMIT_ENV, default_seconds=1.0)
     with urlopen(req, timeout=15) as resp:
         payload = json.loads(resp.read().decode("utf-8"))
     data = payload.get("data") or []
@@ -79,9 +83,50 @@ def _s2_recommend_from_ids(paper_ids: list[str], limit: int = 20) -> list[dict]:
         headers={**_s2_headers(), "Content-Type": "application/json"},
         method="POST",
     )
+    throttle(S2_RATE_LIMIT_KEY, min_interval_env=S2_RATE_LIMIT_ENV, default_seconds=1.0)
     with urlopen(req, timeout=20) as resp:
         payload = json.loads(resp.read().decode("utf-8"))
     return payload.get("recommendedPapers") or payload.get("papers") or []
+
+
+def _connected_papers_api_key() -> str:
+    return (
+        os.environ.get("CONNECTED_PAPERS_API_KEY")
+        or os.environ.get("ConnectedPapers_API_KEY")
+        or ""
+    )
+
+
+def _field(value: object, name: str, default: object = None) -> object:
+    if isinstance(value, dict):
+        return value.get(name, default)
+    return getattr(value, name, default)
+
+
+def _plain_connected_paper(paper: object) -> dict:
+    if isinstance(paper, dict):
+        paper_id = paper.get("id") or paper.get("paper_id") or paper.get("paperId") or ""
+        authors = paper.get("authors") or []
+        return {
+            "paperId": paper_id,
+            "title": paper.get("title", ""),
+            "year": paper.get("year"),
+            "authors": authors,
+            "url": f"https://www.semanticscholar.org/paper/{paper_id}" if paper_id else "",
+        }
+    paper_id = (
+        getattr(paper, "id", "")
+        or getattr(paper, "paper_id", "")
+        or getattr(paper, "paperId", "")
+        or ""
+    )
+    return {
+        "paperId": paper_id,
+        "title": getattr(paper, "title", ""),
+        "year": getattr(paper, "year", None),
+        "authors": getattr(paper, "authors", []) or [],
+        "url": f"https://www.semanticscholar.org/paper/{paper_id}" if paper_id else "",
+    }
 
 
 def _connected_papers(seed_ids: list[str], limit: int = 12) -> dict:
@@ -91,27 +136,27 @@ def _connected_papers(seed_ids: list[str], limit: int = 12) -> dict:
         from connectedpapers import ConnectedPapersClient  # type: ignore
     except Exception as exc:
         return {"available": False, "reason": f"connectedpapers-py is not installed: {exc}"}
-    api_key = os.environ.get("CONNECTED_PAPERS_API_KEY")
+    api_key = _connected_papers_api_key()
     if not api_key:
-        return {"available": False, "reason": "Set CONNECTED_PAPERS_API_KEY to enable graph enrichment."}
+        return {
+            "available": False,
+            "reason": "Set CONNECTED_PAPERS_API_KEY or ConnectedPapers_API_KEY to enable graph enrichment.",
+        }
     try:
         graph_result = ConnectedPapersClient(access_token=api_key).get_graph_sync(seed_ids[0])
-        graph = graph_result.graph_json
+        graph = _field(graph_result, "graph_json")
+        if graph is None:
+            status = _field(graph_result, "status", "unknown")
+            return {"available": False, "reason": f"Connected Papers returned no graph: {status}"}
         def plain(items):
-            out = []
-            for p in list(items or [])[:limit]:
-                out.append({
-                    "paperId": getattr(p, "id", "") or getattr(p, "paper_id", ""),
-                    "title": getattr(p, "title", ""),
-                    "year": getattr(p, "year", None),
-                    "authors": getattr(p, "authors", []) or [],
-                })
-            return out
+            return [_plain_connected_paper(p) for p in list(items or [])[:limit]]
         return {
             "available": True,
             "seedPaperId": seed_ids[0],
-            "common_references": plain(getattr(graph, "common_references", [])),
-            "common_citations": plain(getattr(graph, "common_citations", [])),
+            "status": str(_field(graph_result, "status", "")),
+            "remaining_requests": _field(graph_result, "remaining_requests"),
+            "common_references": plain(_field(graph, "common_references", [])),
+            "common_citations": plain(_field(graph, "common_citations", [])),
         }
     except Exception as exc:
         return {"available": False, "reason": str(exc)}

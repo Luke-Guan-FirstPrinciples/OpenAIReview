@@ -2265,18 +2265,34 @@ function renderQuestionsFallback(method) {
   return qs.length ? `<ul>${qs.join('')}</ul>` : '<span class="empty-state">No explicit questions found.</span>';
 }
 
-function getRelatedWorkData(method) {
+function relatedWorkFromMethodBlock(method) {
   const outputs = method && method.verifier_outputs;
   if (!outputs) return null;
+  let data = null;
   if (outputs.related_work_searcher && outputs.novelty_delta) {
-    return {
+    data = {
       ...outputs.related_work_searcher,
       missing_comparisons_or_citations: outputs.novelty_delta.missing_comparisons_or_citations || [],
       closest_related_work: outputs.novelty_delta.closest_related_work || [],
       novelty_limitations: outputs.novelty_delta.limitations || [],
     };
+  } else {
+    data = outputs.related_work_searcher || outputs.novelty_delta || null;
   }
-  return outputs.related_work_searcher || outputs.novelty_delta || null;
+  return data ? { ...data, source_method_label: method.label || method.model || 'saved method' } : null;
+}
+
+function getRelatedWorkData(method) {
+  const current = relatedWorkFromMethodBlock(method);
+  if (current) return current;
+  const paper = getCurrentPaper();
+  if (!paper || !paper.methods) return null;
+  for (const candidate of Object.values(paper.methods)) {
+    if (candidate === method) continue;
+    const data = relatedWorkFromMethodBlock(candidate);
+    if (data) return data;
+  }
+  return null;
 }
 
 function renderRelatedWorkSection() {
@@ -2309,7 +2325,8 @@ function renderExistingRelatedWork(data) {
   const closest = Array.isArray(data.closest_related_work) ? data.closest_related_work : [];
   const notes = Array.isArray(data.positioning_notes) ? data.positioning_notes : [];
   const missing = Array.isArray(data.missing_comparisons_or_citations) ? data.missing_comparisons_or_citations : [];
-  let html = `<div class="review-section-card"><div class="section-eyebrow">Saved Verifier Output</div>`;
+  const source = data.source_method_label ? ` from ${escapeHtml(data.source_method_label)}` : '';
+  let html = `<div class="review-section-card"><div class="section-eyebrow">Saved Verifier Output${source}</div>`;
   if (notes.length) {
     html += `<div class="section-body"><ul>${notes.map(n => `<li>${escapeHtml(n.note || n.observation || JSON.stringify(n))}</li>`).join('')}</ul></div>`;
   }

@@ -1,5 +1,6 @@
 """Unit tests for the CiteVerify adapter."""
 
+import sys
 from types import SimpleNamespace
 
 from reviewer.citation_verify import _normalize_for_citeverify, review_citations
@@ -92,3 +93,64 @@ def test_review_citations_converts_citeverify_result(monkeypatch):
     assert captured["kwargs"]["llm_model"] == "gpt-5.2"
     assert {c.severity for c in result.comments} == {"major", "moderate"}
 
+
+def test_review_citations_emits_langsmith_trace_when_enabled(monkeypatch):
+    captured = {}
+
+    class FakeTrace:
+        def __init__(self, name, **kwargs):
+            captured["trace_name"] = name
+            captured["trace_kwargs"] = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def end(self, outputs):
+            captured["outputs"] = outputs
+
+    def fake_run_pipeline(report_path, **kwargs):
+        return SimpleNamespace(
+            summary=SimpleNamespace(
+                total_references=1,
+                alignment_pairs=0,
+                exact_match=0,
+                minor_hallucination=1,
+                major_hallucination=0,
+                supports=0,
+                contradicts=0,
+                insufficient_evidence=0,
+            ),
+            claims=[],
+            citations={
+                "1": SimpleNamespace(
+                    original_text="Wrong metadata",
+                    hallucination=SimpleNamespace(
+                        label="minor_hallucination",
+                        score=0.4,
+                        confidence="medium",
+                        reasoning="Metadata appears mismatched.",
+                        matched_source=None,
+                    ),
+                    corrected=None,
+                )
+            },
+            claim_citation_pairs=[],
+        )
+
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    monkeypatch.setitem(sys.modules, "citeverify", SimpleNamespace(run_pipeline=fake_run_pipeline))
+    monkeypatch.setitem(
+        sys.modules,
+        "langsmith.run_helpers",
+        SimpleNamespace(trace=lambda name, **kwargs: FakeTrace(name, **kwargs)),
+    )
+
+    result = review_citations("paper", "Claim [1].\n\nReferences\n\n[1] Wrong metadata")
+
+    assert result.num_comments == 1
+    assert captured["trace_name"] == "citation_hallucination_detection"
+    assert "hallucination_detection" in captured["trace_kwargs"]["tags"]
+    assert captured["outputs"]["num_hallucination_findings"] == 1

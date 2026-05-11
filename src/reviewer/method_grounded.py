@@ -13,11 +13,14 @@ from typing import Any
 from .client import chat
 from .method_progressive import review_progressive
 from .models import ReviewResult
+from .rate_limits import throttle
 from .utils import count_tokens, parse_comments_from_list, truncate_text
 
 
 MAX_PAPER_TOKENS_FOR_VERIFIERS = 40_000
 MAX_CANDIDATE_ISSUES = 80
+S2_RATE_LIMIT_KEY = "semantic_scholar"
+S2_RATE_LIMIT_ENV = "SEMANTIC_SCHOLAR_MIN_INTERVAL_SECONDS"
 
 METHOD_INSIGHT_MINER_PROMPT = """\
 You are a method insight miner for an academic paper review system.
@@ -297,6 +300,7 @@ def _search_semantic_scholar(query: str, limit: int = 5) -> list[dict]:
     api_key = os.environ.get("S2_API_KEY")
     if api_key:
         req.add_header("x-api-key", api_key)
+    throttle(S2_RATE_LIMIT_KEY, min_interval_env=S2_RATE_LIMIT_ENV, default_seconds=1.0)
     with urllib.request.urlopen(req, timeout=15) as resp:
         payload = json.loads(resp.read().decode("utf-8"))
     papers = []

@@ -65,6 +65,21 @@ For citation hallucination and claim-citation verification via CiteVerify:
 uv pip install -e ".[citation]"
 ```
 
+For related-work graph enrichment in the visualization:
+```bash
+uv pip install -e ".[related]"
+export S2_API_KEY=...
+export CONNECTED_PAPERS_API_KEY=...
+# ConnectedPapers_API_KEY is also accepted as an alias.
+```
+
+For LangSmith traces around citation hallucination detection:
+```bash
+uv pip install -e ".[observability]"
+export LANGSMITH_TRACING=true
+export LANGSMITH_API_KEY=...
+```
+
 For development:
 ```bash
 git clone https://github.com/ChicagoHAI/OpenAIReview.git
@@ -82,6 +97,8 @@ uv venv && uv pip install -e .
 - Grounded progressive review mode with final review synthesis, verifier outputs, and issue-level evidence metadata
 - Optional CiteVerify-backed citation hallucination detection and claim-citation verification (`--method citation_verify` or `--citation-check`)
 - Optional novelty-delta verifier for grounded reviews (`--novelty-delta`)
+- Related-work visualization enrichment via Semantic Scholar recommendations and Connected Papers (`openaireview[related]`)
+- Optional LangSmith tracing for citation hallucination detection (`openaireview[observability]`)
 - Table and figure extraction from arXiv HTML (tables as markdown)
 - pymupdf4llm + GNN layout as default PDF fallback (replaces raw PyMuPDF)
 - Mobile-responsive visualization UI
