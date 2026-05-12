@@ -654,9 +654,9 @@ def main() -> None:
     )
     review_parser.add_argument(
         "--ocr",
-        choices=["mistral", "deepseek", "marker", "pymupdf"],
+        choices=["mistral", "deepseek", "glm", "marker", "pymupdf"],
         default=None,
-        help="PDF OCR engine (default: auto -- tries mistral, deepseek, marker, pymupdf)",
+        help="PDF OCR engine (default: auto -- tries mistral, deepseek, marker, pymupdf). 'glm' uses glm-ocr:latest via Ollama (~2.2 GB, explicit only).",
     )
     review_parser.add_argument(
         "--max-pages", type=int, default=None,
@@ -730,7 +730,7 @@ def main() -> None:
     )
     extract_parser.add_argument(
         "--ocr",
-        choices=["mistral", "deepseek", "marker", "pymupdf"],
+        choices=["mistral", "deepseek", "glm", "marker", "pymupdf"],
         default=None,
         help="PDF OCR engine (default: auto)",
     )

@@ -48,7 +48,7 @@ def parse_document(
     Supported formats: .pdf, .docx, .tex, .txt, .md
     Also supports arXiv HTML URLs (e.g. https://arxiv.org/html/2310.06825).
 
-    ocr: PDF OCR engine -- "mistral", "deepseek", "marker", "pymupdf", or None (auto).
+    ocr: PDF OCR engine -- "mistral", "deepseek", "glm", "marker", "pymupdf", or None (auto).
     figures_dir: if provided, save extracted figures here (Mistral/DeepSeek OCR).
     was_ocr: True if the text went through OCR (PDF parsing), False otherwise.
     """
@@ -105,7 +105,8 @@ def _parse_pdf(
     """Extract text from PDF.
 
     Engine priority (when ocr=None): Mistral OCR -> DeepSeek -> Marker -> pymupdf4llm.
-    Set ocr="mistral", "deepseek", "marker", or "pymupdf" to force a specific engine.
+    GLM-OCR is explicit-only (ocr="glm").
+    Set ocr="mistral", "deepseek", "glm", "marker", or "pymupdf" to force a specific engine.
 
     Returns (title, text, engine_used).
     """
@@ -115,6 +116,9 @@ def _parse_pdf(
     elif ocr == "deepseek":
         title, text = _parse_pdf_deepseek(path, figures_dir=figures_dir)
         return title, text, "deepseek"
+    elif ocr == "glm":
+        title, text = _parse_pdf_glm(path, figures_dir=figures_dir)
+        return title, text, "glm"
     elif ocr == "marker":
         title, text = _parse_pdf_marker(path)
         return title, text, "marker"
@@ -241,6 +245,36 @@ def _parse_pdf_mistral(path: Path, figures_dir: Path | None = None) -> tuple[str
     return title, markdown
 
 
+def _import_deepseek_ocr():
+    """Import deepseek-ocr-cli from a directory without our project .env.
+
+    deepseek-ocr-cli builds a pydantic-settings singleton at import time that
+    loads the cwd's .env with extra="forbid", so unrelated keys in our .env
+    blow up the import. Run the import from an empty tempdir to dodge it.
+    Returns (OCRProcessor, OllamaBackend).
+    """
+    import os
+    import sys
+    import tempfile
+
+    cwd = os.getcwd()
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            for mod in [m for m in sys.modules if m == "deepseek_ocr" or m.startswith("deepseek_ocr.")]:
+                del sys.modules[mod]
+            try:
+                from deepseek_ocr import OCRProcessor, OllamaBackend
+            except ImportError:
+                raise ImportError(
+                    "deepseek-ocr-cli not installed. "
+                    "Install with: pip install openaireview[deepseek]"
+                )
+    finally:
+        os.chdir(cwd)
+    return OCRProcessor, OllamaBackend
+
+
 def _parse_pdf_deepseek(path: Path, figures_dir: Path | None = None) -> tuple[str, str]:
     """PDF extraction using DeepSeek OCR via deepseek-ocr-cli (local).
 
@@ -250,13 +284,7 @@ def _parse_pdf_deepseek(path: Path, figures_dir: Path | None = None) -> tuple[st
     Install: pip install openaireview[deepseek]
     See also: https://github.com/r-uben/deepseek-ocr-cli
     """
-    try:
-        from deepseek_ocr import OCRProcessor as DeepSeekProcessor
-    except ImportError:
-        raise ImportError(
-            "deepseek-ocr-cli not installed. "
-            "Install with: pip install openaireview[deepseek]"
-        )
+    DeepSeekProcessor, _OllamaBackend = _import_deepseek_ocr()
 
     print(f"  Running DeepSeek OCR on {path.name}...")
     processor = DeepSeekProcessor(
@@ -289,6 +317,46 @@ def _parse_pdf_deepseek(path: Path, figures_dir: Path | None = None) -> tuple[st
 
     n_pages = result.page_count
     print(f"  DeepSeek OCR: {n_pages} pages extracted in {result.processing_time:.1f}s")
+
+    title = _extract_title_from_markdown(markdown)
+    return title, markdown
+
+
+def _parse_pdf_glm(path: Path, figures_dir: Path | None = None) -> tuple[str, str]:
+    """PDF extraction using GLM-OCR via Ollama (local, ~2.2 GB).
+
+    Reuses deepseek-ocr-cli's OllamaBackend with model_name="glm-ocr:latest".
+    Smaller than DeepSeek-OCR (~6 GB) but uses a generic markdown prompt
+    instead of DeepSeek's <|grounding|> token.
+
+    Install: ollama pull glm-ocr:latest  (requires Ollama running)
+    Model card: https://ollama.com/library/glm-ocr
+    """
+    OCRProcessor, OllamaBackend = _import_deepseek_ocr()
+
+    print(f"  Running GLM-OCR on {path.name}...")
+    backend = OllamaBackend(model_name="glm-ocr:latest")
+    processor = OCRProcessor(
+        backend=backend,
+        extract_images=figures_dir is not None,
+        include_metadata=False,
+    )
+
+    if not processor._backend.model:
+        processor._backend.load_model()
+
+    result = processor.process_file(
+        path,
+        prompt="Convert this document to markdown.",
+        show_progress=True,
+    )
+    markdown = result.output_text
+
+    if not markdown.strip():
+        raise RuntimeError("GLM-OCR returned no content")
+
+    n_pages = result.page_count
+    print(f"  GLM-OCR: {n_pages} pages extracted in {result.processing_time:.1f}s")
 
     title = _extract_title_from_markdown(markdown)
     return title, markdown
